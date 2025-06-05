@@ -63,7 +63,7 @@ func main() {
 	// Start server
 	if err := server.Start(ctx); err != nil {
 		cancel()
-		log.Fatalf("Failed to start server: %v", err)
+		log.Fatalf("Failed to start server: %v", err) //nolint:gocritic // cancel() called manually
 	}
 
 	log.Printf("MCP server started with %s transport", *transportType)

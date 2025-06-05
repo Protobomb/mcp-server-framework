@@ -55,7 +55,7 @@ func main() {
 	case "stdio":
 		if *command == "" {
 			cancel()
-			log.Fatal("Command is required for STDIO transport")
+			log.Fatal("Command is required for STDIO transport") //nolint:gocritic // cancel() called manually
 		}
 
 		// Start the server process
@@ -74,7 +74,9 @@ func main() {
 		}
 		defer func() {
 			if cmd.Process != nil {
-				_ = cmd.Process.Kill()
+				if err := cmd.Process.Kill(); err != nil {
+					log.Printf("Failed to kill process: %v", err)
+				}
 			}
 		}()
 
