@@ -192,8 +192,8 @@ func (s *Server) handleInitialize(ctx context.Context, params json.RawMessage) (
 
 	return InitializeResult{
 		ProtocolVersion: "2024-11-05",
-		Capabilities: map[string]interface{}{
-			"logging": map[string]interface{}{},
+		Capabilities: ServerCapabilities{
+			Tools: &ToolsCapability{},
 		},
 		ServerInfo: ServerInfo{
 			Name:    "mcp-server-framework",

@@ -87,14 +87,60 @@ type ServerInfo struct {
 
 // InitializeParams represents initialization parameters
 type InitializeParams struct {
-	ProtocolVersion string                 `json:"protocolVersion"`
-	Capabilities    map[string]interface{} `json:"capabilities"`
-	ClientInfo      ServerInfo             `json:"clientInfo"`
+	ProtocolVersion string             `json:"protocolVersion"`
+	Capabilities    ClientCapabilities `json:"capabilities"`
+	ClientInfo      ServerInfo         `json:"clientInfo"`
 }
 
 // InitializeResult represents initialization result
 type InitializeResult struct {
-	ProtocolVersion string                 `json:"protocolVersion"`
-	Capabilities    map[string]interface{} `json:"capabilities"`
-	ServerInfo      ServerInfo             `json:"serverInfo"`
+	ProtocolVersion string             `json:"protocolVersion"`
+	Capabilities    ServerCapabilities `json:"capabilities"`
+	ServerInfo      ServerInfo         `json:"serverInfo"`
+}
+
+// Tool represents an MCP tool
+type Tool struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	InputSchema map[string]interface{} `json:"inputSchema"`
+}
+
+// Content represents content in MCP responses
+type Content struct {
+	Type string `json:"type"`
+	Text string `json:"text,omitempty"`
+}
+
+// CallToolResult represents the result of calling a tool
+type CallToolResult struct {
+	Content []Content `json:"content"`
+	IsError bool      `json:"isError,omitempty"`
+}
+
+// ToolsCapability represents tools capability
+type ToolsCapability struct {
+	ListChanged bool `json:"listChanged,omitempty"`
+}
+
+// ServerCapabilities represents server capabilities
+type ServerCapabilities struct {
+	Tools *ToolsCapability `json:"tools,omitempty"`
+}
+
+// ClientCapabilities represents client capabilities
+type ClientCapabilities struct {
+	// Add client-specific capabilities here as needed
+}
+
+// CallToolParams represents call tool request parameters
+type CallToolParams struct {
+	Name      string                 `json:"name"`
+	Arguments map[string]interface{} `json:"arguments,omitempty"`
+}
+
+// TextContent represents text content
+type TextContent struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
 }
