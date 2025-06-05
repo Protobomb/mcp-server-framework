@@ -11,6 +11,7 @@ A simple, reusable Model Context Protocol (MCP) server framework written in Go. 
 - 🌐 **CORS Enabled**: Built-in CORS support for web clients
 - 🐳 **Containerized**: Docker support with automated builds
 - ⚡ **Easy to Use**: Simple API for registering handlers
+- 🔧 **MCP Client**: Full-featured client implementation for testing and development
 
 ## Quick Start
 
@@ -72,6 +73,79 @@ func main() {
 }
 ```
 
+### As a Client
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+
+    "github.com/openhands/mcp-server-framework/internal/transport"
+    "github.com/openhands/mcp-server-framework/pkg/client"
+    "github.com/openhands/mcp-server-framework/pkg/mcp"
+)
+
+func main() {
+    // Create transport (STDIO or HTTP)
+    transport := transport.NewSTDIOTransport("./mcp-server")
+    // transport := transport.NewHTTPTransport("http://localhost:8080")
+
+    // Create client
+    client := client.NewClient(transport)
+    defer client.Close()
+
+    ctx := context.Background()
+
+    // Initialize connection
+    clientInfo := mcp.ServerInfo{
+        Name:    "my-client",
+        Version: "1.0.0",
+    }
+    
+    result, err := client.Initialize(ctx, clientInfo)
+    if err != nil {
+        log.Fatal(err)
+    }
+    log.Printf("Server: %s v%s", result.ServerInfo.Name, result.ServerInfo.Version)
+
+    // List available tools
+    tools, err := client.ListTools(ctx)
+    if err != nil {
+        log.Fatal(err)
+    }
+    log.Printf("Available tools: %d", len(tools.Tools))
+
+    // Call a tool
+    params := map[string]interface{}{
+        "message": "Hello from client!",
+    }
+    
+    response, err := client.CallTool(ctx, "echo", params)
+    if err != nil {
+        log.Fatal(err)
+    }
+    log.Printf("Tool response: %v", response)
+}
+```
+
+## Quick Commands
+
+```bash
+# Build everything
+make build-both
+
+# Test the client
+make run-client
+
+# Try the interactive demo
+make demo
+
+# Run all tests
+make test
+```
+
 ## Installation
 
 ### Go Module
@@ -129,6 +203,51 @@ err := server.Stop()
 err := server.Close()
 ```
 
+### Client
+
+#### Creating a Client
+
+```go
+// With STDIO transport
+transport := transport.NewSTDIOTransport("./mcp-server")
+client := client.NewClient(transport)
+
+// With HTTP transport
+transport := transport.NewHTTPTransport("http://localhost:8080")
+client := client.NewClient(transport)
+```
+
+#### Client Methods
+
+```go
+// Initialize connection
+clientInfo := mcp.ServerInfo{
+    Name:    "my-client",
+    Version: "1.0.0",
+}
+result, err := client.Initialize(ctx, clientInfo)
+
+// List available tools
+tools, err := client.ListTools(ctx)
+
+// Call a tool
+params := map[string]interface{}{
+    "param1": "value1",
+    "param2": 42,
+}
+response, err := client.CallTool(ctx, "toolName", params)
+
+// Send notifications
+err := client.Notify(ctx, "notificationName", params)
+```
+
+#### Client Lifecycle
+
+```go
+// Close the client
+err := client.Close()
+```
+
 ### Transports
 
 #### STDIO Transport
@@ -170,20 +289,44 @@ The standalone server includes example handlers:
 
 ```bash
 # Run all tests
-go test ./...
+make test
 
 # Run tests with coverage
-go test -cover ./...
+make test-coverage
 
-# Run tests with verbose output
+# Test client with STDIO server
+make test-client-stdio
+
+# Test client with HTTP server  
+make test-client-http
+
+# Manual testing
+go test ./...
+go test -cover ./...
 go test -v ./...
 ```
 
 ## Building
 
 ```bash
-# Build the standalone server
+# Build everything (server + client)
+make build-both
+
+# Build just the server
+make build
+
+# Build just the client
+make build-client
+
+# Run the client with help
+make run-client
+
+# Try the interactive demo
+make demo
+
+# Manual building
 go build -o mcp-server cmd/mcp-server/main.go
+go build -o mcp-client cmd/mcp-client/main.go
 
 # Build for different platforms
 GOOS=linux GOARCH=amd64 go build -o mcp-server-linux cmd/mcp-server/main.go
@@ -206,7 +349,21 @@ docker run -p 8080:8080 mcp-server-framework -transport=sse -addr=:8080
 
 ## Examples
 
-### STDIO Client Example
+### Using the Test Client
+
+```bash
+# Test with STDIO server
+./mcp-client -transport=stdio -command='./mcp-server'
+
+# Test with HTTP server (start server first)
+./mcp-server -transport=sse -addr=:8080 &
+./mcp-client -transport=http -addr=http://localhost:8080
+
+# Interactive demo
+make demo
+```
+
+### Raw STDIO Client Example
 
 ```bash
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | ./mcp-server

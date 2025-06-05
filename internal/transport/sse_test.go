@@ -37,7 +37,7 @@ func TestNewSSETransport(t *testing.T) {
 func TestSSETransportHealthHandler(t *testing.T) {
 	transport := NewSSETransport(":8080")
 
-	req := httptest.NewRequest("GET", "/health", nil)
+	req := httptest.NewRequest("GET", "/health", http.NoBody)
 	w := httptest.NewRecorder()
 
 	transport.handleHealth(w, req)
@@ -97,7 +97,7 @@ func TestSSETransportSendHandler(t *testing.T) {
 func TestSSETransportSendHandlerInvalidMethod(t *testing.T) {
 	transport := NewSSETransport(":8080")
 
-	req := httptest.NewRequest("GET", "/send", nil)
+	req := httptest.NewRequest("GET", "/send", http.NoBody)
 	w := httptest.NewRecorder()
 
 	transport.handleSend(w, req)
@@ -152,7 +152,7 @@ func TestSSETransportSend(t *testing.T) {
 	// Check that client received the message
 	select {
 	case msg := <-client.messages:
-		if string(msg) != string(message) {
+		if !bytes.Equal(msg, message) {
 			t.Errorf("Expected '%s', got '%s'", string(message), string(msg))
 		}
 	case <-time.After(100 * time.Millisecond):
@@ -200,7 +200,7 @@ func TestSSETransportCORS(t *testing.T) {
 	corsHandler := transport.enableCORS(handler)
 
 	// Test OPTIONS request
-	req := httptest.NewRequest("OPTIONS", "/test", nil)
+	req := httptest.NewRequest("OPTIONS", "/test", http.NoBody)
 	w := httptest.NewRecorder()
 
 	corsHandler.ServeHTTP(w, req)

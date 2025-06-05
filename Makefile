@@ -18,8 +18,13 @@ GOMOD=$(GOCMD) mod
 
 all: clean deps test build ## Build everything
 
-build: ## Build the binary
+build: ## Build the server binary
 	$(GOBUILD) $(LDFLAGS) -o $(BINARY_NAME) cmd/mcp-server/main.go
+
+build-client: ## Build the client binary
+	$(GOBUILD) $(LDFLAGS) -o mcp-client cmd/mcp-client/main.go
+
+build-both: build build-client ## Build both server and client
 
 build-all: ## Build for all platforms
 	@echo "Building for multiple platforms..."
@@ -29,18 +34,23 @@ build-all: ## Build for all platforms
 	GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o dist/$(BINARY_NAME)-darwin-amd64 cmd/mcp-server/main.go
 	GOOS=darwin GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o dist/$(BINARY_NAME)-darwin-arm64 cmd/mcp-server/main.go
 	GOOS=windows GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o dist/$(BINARY_NAME)-windows-amd64.exe cmd/mcp-server/main.go
+	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o dist/mcp-client-linux-amd64 cmd/mcp-client/main.go
+	GOOS=linux GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o dist/mcp-client-linux-arm64 cmd/mcp-client/main.go
+	GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o dist/mcp-client-darwin-amd64 cmd/mcp-client/main.go
+	GOOS=darwin GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o dist/mcp-client-darwin-arm64 cmd/mcp-client/main.go
+	GOOS=windows GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o dist/mcp-client-windows-amd64.exe cmd/mcp-client/main.go
 
 clean: ## Clean build artifacts
 	$(GOCLEAN)
-	rm -f $(BINARY_NAME)
+	rm -f $(BINARY_NAME) mcp-client
 	rm -rf dist/
 	rm -f coverage.out coverage.html
 
 test: ## Run tests
-	$(GOTEST) -v -race ./...
+	$(GOTEST) -v -race ./pkg/... ./internal/... ./cmd/...
 
 test-coverage: ## Run tests with coverage
-	$(GOTEST) -v -race -coverprofile=coverage.out ./...
+	$(GOTEST) -v -race -coverprofile=coverage.out ./pkg/... ./internal/... ./cmd/...
 	$(GOCMD) tool cover -html=coverage.out -o coverage.html
 
 coverage: test-coverage ## Generate coverage report
@@ -82,6 +92,18 @@ run: build ## Build and run the server
 
 run-sse: build ## Build and run the server with SSE transport
 	./$(BINARY_NAME) -transport=sse -addr=:8080
+
+run-client: build-client ## Build and run the test client
+	./mcp-client -help
+
+demo: build build-client ## Run the client-server demo
+	go run examples/client-server-demo.go
+
+test-client-stdio: build build-client ## Test client with STDIO server
+	./mcp-client -transport=stdio -command="./$(BINARY_NAME)"
+
+test-client-http: build build-client ## Test client with HTTP server (requires server running)
+	./mcp-client -transport=http -addr=http://localhost:8080
 
 dev: ## Run in development mode with hot reload
 	@which air > /dev/null || (echo "Installing air..." && go install github.com/cosmtrek/air@latest)

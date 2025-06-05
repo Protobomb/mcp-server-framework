@@ -61,8 +61,9 @@ func (t *SSETransport) Start(ctx context.Context) error {
 	mux.HandleFunc("/health", t.handleHealth)
 
 	t.server = &http.Server{
-		Addr:    t.addr,
-		Handler: t.enableCORS(mux),
+		Addr:              t.addr,
+		Handler:           t.enableCORS(mux),
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	// Start the server in a goroutine
@@ -145,7 +146,7 @@ func (t *SSETransport) Close() error {
 	}
 
 	t.closed = true
-	
+
 	// Close channels safely
 	select {
 	case <-t.done:
@@ -153,7 +154,7 @@ func (t *SSETransport) Close() error {
 	default:
 		close(t.done)
 	}
-	
+
 	select {
 	case <-t.messages:
 		// Already closed
@@ -244,7 +245,9 @@ func (t *SSETransport) handleSend(w http.ResponseWriter, r *http.Request) {
 	select {
 	case t.messages <- message:
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
+			log.Printf("Failed to encode health response: %v", err)
+		}
 	default:
 		http.Error(w, "Message buffer full", http.StatusServiceUnavailable)
 	}
@@ -257,12 +260,14 @@ func (t *SSETransport) handleHealth(w http.ResponseWriter, r *http.Request) {
 	t.mu.RUnlock()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":       "ok",
-		"clients":      clientCount,
-		"transport":    "sse",
-		"timestamp":    time.Now().Unix(),
-	})
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":    "ok",
+		"clients":   clientCount,
+		"transport": "sse",
+		"timestamp": time.Now().Unix(),
+	}); err != nil {
+		log.Printf("Failed to encode health response: %v", err)
+	}
 }
 
 // enableCORS enables CORS for all requests
