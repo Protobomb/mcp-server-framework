@@ -1,3 +1,4 @@
+// Package client provides a Go client implementation for the Model Context Protocol (MCP).
 package client
 
 import (
@@ -51,10 +52,10 @@ func (c *Client) Call(ctx context.Context, method string, params interface{}) (*
 		c.mu.Unlock()
 		return nil, fmt.Errorf("client is closed")
 	}
-	
+
 	id := c.nextID
 	c.nextID++
-	
+
 	respChan := make(chan *mcp.JSONRPCResponse, 1)
 	c.pending[id] = respChan
 	c.mu.Unlock()
@@ -217,7 +218,7 @@ func (c *Client) Close() error {
 	}
 
 	c.closed = true
-	
+
 	// Close all pending channels
 	for _, ch := range c.pending {
 		close(ch)
@@ -262,10 +263,10 @@ func (c *Client) processResponses(ctx context.Context) {
 
 // STDIOTransport implements Transport for STDIO communication
 type STDIOTransport struct {
-	reader io.Reader
-	writer io.Writer
+	reader  io.Reader
+	writer  io.Writer
 	scanner *bufio.Scanner
-	mu     sync.Mutex
+	mu      sync.Mutex
 }
 
 // NewSTDIOTransport creates a new STDIO transport

@@ -62,6 +62,7 @@ func main() {
 
 	// Start server
 	if err := server.Start(ctx); err != nil {
+		cancel()
 		log.Fatalf("Failed to start server: %v", err)
 	}
 
@@ -90,7 +91,127 @@ func main() {
 
 // registerExampleHandlers registers example handlers for demonstration
 func registerExampleHandlers(server *mcp.Server) {
-	// Echo handler
+	// MCP tools/list handler
+	server.RegisterHandler("tools/list", func(ctx context.Context, params json.RawMessage) (interface{}, error) {
+		return map[string]interface{}{
+			"tools": []map[string]interface{}{
+				{
+					"name":        "echo",
+					"description": "Echo back a message",
+					"inputSchema": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"message": map[string]interface{}{
+								"type":        "string",
+								"description": "The message to echo back",
+							},
+						},
+						"required": []string{"message"},
+					},
+				},
+				{
+					"name":        "math",
+					"description": "Perform basic mathematical operations",
+					"inputSchema": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"operation": map[string]interface{}{
+								"type":        "string",
+								"description": "The operation to perform (add, subtract, multiply, divide)",
+								"enum":        []string{"add", "subtract", "multiply", "divide"},
+							},
+							"a": map[string]interface{}{
+								"type":        "number",
+								"description": "First number",
+							},
+							"b": map[string]interface{}{
+								"type":        "number",
+								"description": "Second number",
+							},
+						},
+						"required": []string{"operation", "a", "b"},
+					},
+				},
+			},
+		}, nil
+	})
+
+	// MCP tools/call handler
+	server.RegisterHandler("tools/call", func(ctx context.Context, params json.RawMessage) (interface{}, error) {
+		var callParams struct {
+			Name      string                 `json:"name"`
+			Arguments map[string]interface{} `json:"arguments"`
+		}
+
+		if len(params) > 0 {
+			if err := json.Unmarshal(params, &callParams); err != nil {
+				return nil, mcp.NewInvalidParamsError("Invalid tool call parameters")
+			}
+		}
+
+		switch callParams.Name {
+		case "echo":
+			message, ok := callParams.Arguments["message"].(string)
+			if !ok {
+				return nil, mcp.NewInvalidParamsError("Missing or invalid 'message' parameter")
+			}
+			return map[string]interface{}{
+				"content": []map[string]interface{}{
+					{
+						"type": "text",
+						"text": message,
+					},
+				},
+			}, nil
+
+		case "math":
+			operation, ok := callParams.Arguments["operation"].(string)
+			if !ok {
+				return nil, mcp.NewInvalidParamsError("Missing or invalid 'operation' parameter")
+			}
+
+			a, ok := callParams.Arguments["a"].(float64)
+			if !ok {
+				return nil, mcp.NewInvalidParamsError("Missing or invalid 'a' parameter")
+			}
+
+			b, ok := callParams.Arguments["b"].(float64)
+			if !ok {
+				return nil, mcp.NewInvalidParamsError("Missing or invalid 'b' parameter")
+			}
+
+			var result float64
+			switch operation {
+			case "add":
+				result = a + b
+			case "subtract":
+				result = a - b
+			case "multiply":
+				result = a * b
+			case "divide":
+				if b == 0 {
+					return nil, mcp.NewInvalidParamsError("Division by zero")
+				}
+				result = a / b
+			default:
+				return nil, mcp.NewInvalidParamsError("Unknown operation: " + operation)
+			}
+
+			return map[string]interface{}{
+				"content": []map[string]interface{}{
+					{
+						"type": "text",
+						"text": fmt.Sprintf("%.2f", result),
+					},
+				},
+			}, nil
+
+		default:
+			return nil, mcp.NewMethodNotFoundError("Unknown tool: " + callParams.Name)
+		}
+	})
+
+	// Echo handler (legacy)
 	server.RegisterHandler("echo", func(ctx context.Context, params json.RawMessage) (interface{}, error) {
 		var echoParams struct {
 			Message string `json:"message"`
@@ -107,7 +228,7 @@ func registerExampleHandlers(server *mcp.Server) {
 		}, nil
 	})
 
-	// Add handler
+	// Add handler (legacy)
 	server.RegisterHandler("add", func(ctx context.Context, params json.RawMessage) (interface{}, error) {
 		var addParams struct {
 			A float64 `json:"a"`
@@ -130,6 +251,8 @@ func registerExampleHandlers(server *mcp.Server) {
 		return map[string]interface{}{
 			"methods": []string{
 				"initialize",
+				"tools/list",
+				"tools/call",
 				"echo",
 				"add",
 				"listMethods",
@@ -140,6 +263,25 @@ func registerExampleHandlers(server *mcp.Server) {
 	// Ping notification handler
 	server.RegisterNotificationHandler("ping", func(ctx context.Context, params json.RawMessage) error {
 		log.Println("Received ping notification")
+		return nil
+	})
+
+	// Notifications/message handler for demo
+	server.RegisterNotificationHandler("notifications/message", func(ctx context.Context, params json.RawMessage) error {
+		var msgParams struct {
+			Level   string `json:"level"`
+			Message string `json:"message"`
+			Source  string `json:"source"`
+		}
+
+		if len(params) > 0 {
+			if err := json.Unmarshal(params, &msgParams); err != nil {
+				log.Printf("Invalid notification parameters: %v", err)
+				return nil
+			}
+		}
+
+		log.Printf("[%s] %s (from %s)", msgParams.Level, msgParams.Message, msgParams.Source)
 		return nil
 	})
 }

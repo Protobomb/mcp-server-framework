@@ -34,17 +34,17 @@ func NewMockTransport() *MockTransport {
 func (m *MockTransport) Send(request *mcp.JSONRPCRequest) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if m.sendError != nil {
 		return m.sendError
 	}
-	
+
 	if m.closed {
 		return fmt.Errorf("transport closed")
 	}
-	
+
 	m.sendCalls = append(m.sendCalls, *request)
-	
+
 	// Auto-respond if enabled
 	if m.autoRespond {
 		go func() {
@@ -58,13 +58,13 @@ func (m *MockTransport) Send(request *mcp.JSONRPCRequest) error {
 					}
 				}
 			}
-			
+
 			response := mcp.JSONRPCResponse{
 				JSONRPC: "2.0",
 				ID:      request.ID,
 				Result:  json.RawMessage(fmt.Sprintf(`{"call": %d}`, callID)),
 			}
-			
+
 			m.mu.RLock()
 			if !m.closed {
 				select {
@@ -75,7 +75,7 @@ func (m *MockTransport) Send(request *mcp.JSONRPCRequest) error {
 			m.mu.RUnlock()
 		}()
 	}
-	
+
 	return nil
 }
 
@@ -145,15 +145,15 @@ func (m *MockTransport) SetReceiveError(err error) {
 func TestNewClient(t *testing.T) {
 	transport := NewMockTransport()
 	client := NewClient(transport)
-	
+
 	if client == nil {
 		t.Fatal("NewClient returned nil")
 	}
-	
+
 	if client.transport != transport {
 		t.Error("Client transport not set correctly")
 	}
-	
+
 	if client.pending == nil {
 		t.Error("Client pending map not initialized")
 	}
@@ -162,13 +162,13 @@ func TestNewClient(t *testing.T) {
 func TestClientCall(t *testing.T) {
 	transport := NewMockTransport()
 	client := NewClient(transport)
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	
+
 	client.Start(ctx)
 	defer client.Close()
-	
+
 	// Add expected response
 	expectedResult := json.RawMessage(`{"test": "result"}`)
 	transport.AddResponse(mcp.JSONRPCResponse{
@@ -176,26 +176,26 @@ func TestClientCall(t *testing.T) {
 		ID:      0,
 		Result:  expectedResult,
 	})
-	
+
 	resp, err := client.Call(ctx, "test/method", map[string]string{"param": "value"})
 	if err != nil {
 		t.Fatalf("Call failed: %v", err)
 	}
-	
+
 	if resp.ID != 0 {
 		t.Errorf("Expected ID 0, got %v", resp.ID)
 	}
-	
+
 	if string(resp.Result.(json.RawMessage)) != string(expectedResult) {
 		t.Errorf("Expected result %s, got %s", expectedResult, resp.Result)
 	}
-	
+
 	// Check that request was sent
 	calls := transport.GetSendCalls()
 	if len(calls) != 1 {
 		t.Fatalf("Expected 1 send call, got %d", len(calls))
 	}
-	
+
 	if calls[0].Method != "test/method" {
 		t.Errorf("Expected method 'test/method', got '%s'", calls[0].Method)
 	}
@@ -204,13 +204,13 @@ func TestClientCall(t *testing.T) {
 func TestClientCallError(t *testing.T) {
 	transport := NewMockTransport()
 	client := NewClient(transport)
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	
+
 	client.Start(ctx)
 	defer client.Close()
-	
+
 	// Add error response
 	transport.AddResponse(mcp.JSONRPCResponse{
 		JSONRPC: "2.0",
@@ -220,16 +220,16 @@ func TestClientCallError(t *testing.T) {
 			Message: "Method not found",
 		},
 	})
-	
+
 	resp, err := client.Call(ctx, "unknown/method", nil)
 	if err != nil {
 		t.Fatalf("Call failed: %v", err)
 	}
-	
+
 	if resp.Error == nil {
 		t.Error("Expected error response, got nil")
 	}
-	
+
 	if resp.Error.Message != "Method not found" {
 		t.Errorf("Expected error message 'Method not found', got '%s'", resp.Error.Message)
 	}
@@ -238,19 +238,19 @@ func TestClientCallError(t *testing.T) {
 func TestClientCallTimeout(t *testing.T) {
 	transport := NewMockTransport()
 	client := NewClient(transport)
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	
+
 	client.Start(ctx)
 	defer client.Close()
-	
+
 	// Don't add any response - should timeout
 	_, err := client.Call(ctx, "test/method", nil)
 	if err == nil {
 		t.Error("Expected timeout error, got nil")
 	}
-	
+
 	if err != context.DeadlineExceeded {
 		t.Errorf("Expected context.DeadlineExceeded, got %v", err)
 	}
@@ -260,21 +260,21 @@ func TestClientNotify(t *testing.T) {
 	transport := NewMockTransport()
 	client := NewClient(transport)
 	defer client.Close()
-	
+
 	err := client.Notify("test/notification", map[string]string{"param": "value"})
 	if err != nil {
 		t.Fatalf("Notify failed: %v", err)
 	}
-	
+
 	calls := transport.GetSendCalls()
 	if len(calls) != 1 {
 		t.Fatalf("Expected 1 send call, got %d", len(calls))
 	}
-	
+
 	if calls[0].ID != nil {
 		t.Error("Expected notification to have nil ID")
 	}
-	
+
 	if calls[0].Method != "test/notification" {
 		t.Errorf("Expected method 'test/notification', got '%s'", calls[0].Method)
 	}
@@ -283,13 +283,13 @@ func TestClientNotify(t *testing.T) {
 func TestClientInitialize(t *testing.T) {
 	transport := NewMockTransport()
 	client := NewClient(transport)
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	
+
 	client.Start(ctx)
 	defer client.Close()
-	
+
 	// Add expected response
 	result := mcp.InitializeResult{
 		ProtocolVersion: "2024-11-05",
@@ -302,33 +302,33 @@ func TestClientInitialize(t *testing.T) {
 		},
 	}
 	resultBytes, _ := json.Marshal(result)
-	
+
 	transport.AddResponse(mcp.JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      0,
 		Result:  json.RawMessage(resultBytes),
 	})
-	
+
 	clientInfo := mcp.ServerInfo{
 		Name:    "test-client",
 		Version: "1.0.0",
 	}
-	
+
 	initResult, err := client.Initialize(ctx, clientInfo)
 	if err != nil {
 		t.Fatalf("Initialize failed: %v", err)
 	}
-	
+
 	if initResult.ServerInfo.Name != "test-server" {
 		t.Errorf("Expected server name 'test-server', got '%s'", initResult.ServerInfo.Name)
 	}
-	
+
 	// Check that initialize request was sent
 	calls := transport.GetSendCalls()
 	if len(calls) != 1 {
 		t.Fatalf("Expected 1 send call, got %d", len(calls))
 	}
-	
+
 	if calls[0].Method != "initialize" {
 		t.Errorf("Expected method 'initialize', got '%s'", calls[0].Method)
 	}
@@ -337,13 +337,13 @@ func TestClientInitialize(t *testing.T) {
 func TestClientListTools(t *testing.T) {
 	transport := NewMockTransport()
 	client := NewClient(transport)
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	
+
 	client.Start(ctx)
 	defer client.Close()
-	
+
 	// Add expected response
 	tools := []mcp.Tool{
 		{
@@ -363,22 +363,22 @@ func TestClientListTools(t *testing.T) {
 		Tools []mcp.Tool `json:"tools"`
 	}{Tools: tools}
 	resultBytes, _ := json.Marshal(result)
-	
+
 	transport.AddResponse(mcp.JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      0,
 		Result:  json.RawMessage(resultBytes),
 	})
-	
+
 	toolsList, err := client.ListTools(ctx)
 	if err != nil {
 		t.Fatalf("ListTools failed: %v", err)
 	}
-	
+
 	if len(toolsList) != 1 {
 		t.Fatalf("Expected 1 tool, got %d", len(toolsList))
 	}
-	
+
 	if toolsList[0].Name != "test-tool" {
 		t.Errorf("Expected tool name 'test-tool', got '%s'", toolsList[0].Name)
 	}
@@ -387,13 +387,13 @@ func TestClientListTools(t *testing.T) {
 func TestClientCallTool(t *testing.T) {
 	transport := NewMockTransport()
 	client := NewClient(transport)
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	
+
 	client.Start(ctx)
 	defer client.Close()
-	
+
 	// Add expected response
 	content := []mcp.Content{
 		{
@@ -403,23 +403,23 @@ func TestClientCallTool(t *testing.T) {
 	}
 	result := mcp.CallToolResult{Content: content}
 	resultBytes, _ := json.Marshal(result)
-	
+
 	transport.AddResponse(mcp.JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      0,
 		Result:  json.RawMessage(resultBytes),
 	})
-	
+
 	args := map[string]interface{}{"input": "test"}
 	toolResult, err := client.CallTool(ctx, "test-tool", args)
 	if err != nil {
 		t.Fatalf("CallTool failed: %v", err)
 	}
-	
+
 	if len(toolResult) != 1 {
 		t.Fatalf("Expected 1 content item, got %d", len(toolResult))
 	}
-	
+
 	if toolResult[0].Text != "Tool result" {
 		t.Errorf("Expected text 'Tool result', got '%s'", toolResult[0].Text)
 	}
@@ -428,18 +428,18 @@ func TestClientCallTool(t *testing.T) {
 func TestClientClose(t *testing.T) {
 	transport := NewMockTransport()
 	client := NewClient(transport)
-	
+
 	err := client.Close()
 	if err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-	
+
 	// Test that operations fail after close
 	err = client.Notify("test", nil)
 	if err == nil {
 		t.Error("Expected error after close, got nil")
 	}
-	
+
 	ctx := context.Background()
 	_, err = client.Call(ctx, "test", nil)
 	if err == nil {
@@ -450,9 +450,9 @@ func TestClientClose(t *testing.T) {
 func TestSTDIOTransport(t *testing.T) {
 	var buf bytes.Buffer
 	reader := strings.NewReader(`{"jsonrpc":"2.0","id":1,"result":{"test":"value"}}` + "\n")
-	
+
 	transport := NewSTDIOTransport(reader, &buf)
-	
+
 	// Test Send
 	params, _ := json.Marshal(map[string]string{"key": "value"})
 	request := &mcp.JSONRPCRequest{
@@ -461,28 +461,28 @@ func TestSTDIOTransport(t *testing.T) {
 		Method:  "test",
 		Params:  params,
 	}
-	
+
 	err := transport.Send(request)
 	if err != nil {
 		t.Fatalf("Send failed: %v", err)
 	}
-	
+
 	// Check that request was written
 	written := buf.String()
 	if !strings.Contains(written, `"method":"test"`) {
 		t.Error("Request not written correctly")
 	}
-	
+
 	// Test Receive
 	response, err := transport.Receive()
 	if err != nil {
 		t.Fatalf("Receive failed: %v", err)
 	}
-	
+
 	if response.ID != float64(1) { // JSON unmarshals numbers as float64
 		t.Errorf("Expected ID 1, got %v (type %T)", response.ID, response.ID)
 	}
-	
+
 	// Test Close
 	err = transport.Close()
 	if err != nil {
@@ -493,9 +493,9 @@ func TestSTDIOTransport(t *testing.T) {
 func TestSTDIOTransportEOF(t *testing.T) {
 	reader := strings.NewReader("")
 	var buf bytes.Buffer
-	
+
 	transport := NewSTDIOTransport(reader, &buf)
-	
+
 	_, err := transport.Receive()
 	if err != io.EOF {
 		t.Errorf("Expected EOF, got %v", err)
@@ -504,23 +504,23 @@ func TestSTDIOTransportEOF(t *testing.T) {
 
 func TestHTTPTransport(t *testing.T) {
 	transport := NewHTTPTransport("http://localhost:8080")
-	
+
 	if transport.baseURL != "http://localhost:8080" {
 		t.Errorf("Expected baseURL 'http://localhost:8080', got '%s'", transport.baseURL)
 	}
-	
+
 	// Test that baseURL trailing slash is removed
 	transport2 := NewHTTPTransport("http://localhost:8080/")
 	if transport2.baseURL != "http://localhost:8080" {
 		t.Errorf("Expected baseURL 'http://localhost:8080', got '%s'", transport2.baseURL)
 	}
-	
+
 	// Test Close
 	err := transport.Close()
 	if err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-	
+
 	// Test Receive (should return error)
 	_, err = transport.Receive()
 	if err == nil {
@@ -531,16 +531,16 @@ func TestHTTPTransport(t *testing.T) {
 func TestClientSendError(t *testing.T) {
 	transport := NewMockTransport()
 	transport.SetSendError(fmt.Errorf("send error"))
-	
+
 	client := NewClient(transport)
 	defer client.Close()
-	
+
 	ctx := context.Background()
 	_, err := client.Call(ctx, "test", nil)
 	if err == nil {
 		t.Error("Expected send error, got nil")
 	}
-	
+
 	if !strings.Contains(err.Error(), "failed to send request") {
 		t.Errorf("Expected 'failed to send request' error, got: %v", err)
 	}
@@ -550,17 +550,17 @@ func TestClientMultipleCalls(t *testing.T) {
 	transport := NewMockTransport()
 	transport.SetAutoRespond(true)
 	client := NewClient(transport)
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	
+
 	client.Start(ctx)
 	defer client.Close()
-	
+
 	// Make multiple concurrent calls
 	var wg sync.WaitGroup
 	results := make([]string, 3)
-	
+
 	for i := 0; i < 3; i++ {
 		wg.Add(1)
 		go func(callID int) {
@@ -573,9 +573,9 @@ func TestClientMultipleCalls(t *testing.T) {
 			results[callID] = string(resp.Result.(json.RawMessage))
 		}(i)
 	}
-	
+
 	wg.Wait()
-	
+
 	// Verify all calls completed
 	for i, result := range results {
 		expected := fmt.Sprintf(`{"call": %d}`, i)

@@ -94,6 +94,7 @@ issues:
     - path: cmd/
       linters:
         - gocyclo
+        - depguard
     - linters:
         - lll
       source: "^//go:generate "

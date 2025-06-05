@@ -1,3 +1,4 @@
+// Package transport provides transport implementations for the Model Context Protocol (MCP).
 package transport
 
 import (
@@ -50,7 +51,7 @@ func (t *STDIOTransport) Start(ctx context.Context) error {
 	}
 
 	t.scanner = bufio.NewScanner(t.input)
-	
+
 	// Start reading from input in a goroutine
 	go t.readLoop(ctx)
 
@@ -66,6 +67,7 @@ func (t *STDIOTransport) Stop() error {
 		return nil
 	}
 
+	t.closed = true
 	close(t.done)
 	return nil
 }
@@ -83,7 +85,7 @@ func (t *STDIOTransport) Send(message []byte) error {
 	if _, err := t.output.Write(message); err != nil {
 		return fmt.Errorf("failed to write message: %w", err)
 	}
-	
+
 	if _, err := t.output.Write([]byte("\n")); err != nil {
 		return fmt.Errorf("failed to write newline: %w", err)
 	}
@@ -113,8 +115,22 @@ func (t *STDIOTransport) Close() error {
 	}
 
 	t.closed = true
-	close(t.done)
-	close(t.messages)
+
+	// Close done channel if not already closed
+	select {
+	case <-t.done:
+		// Already closed
+	default:
+		close(t.done)
+	}
+
+	// Close messages channel if not already closed
+	select {
+	case <-t.messages:
+		// Already closed
+	default:
+		close(t.messages)
+	}
 
 	return nil
 }
@@ -142,7 +158,7 @@ func (t *STDIOTransport) readLoop(ctx context.Context) {
 					// Make a copy of the line since scanner reuses the buffer
 					message := make([]byte, len(line))
 					copy(message, line)
-					
+
 					select {
 					case t.messages <- message:
 					case <-ctx.Done():

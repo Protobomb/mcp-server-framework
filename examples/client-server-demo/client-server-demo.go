@@ -20,7 +20,7 @@ func main() {
 
 	// Start the example server
 	fmt.Println("📡 Starting MCP server...")
-	cmd := exec.CommandContext(ctx, "go", "run", "examples/simple-server.go")
+	cmd := exec.CommandContext(ctx, "./mcp-server")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		log.Fatalf("Failed to create stdin pipe: %v", err)
@@ -73,7 +73,7 @@ func runDemo(ctx context.Context, mcpClient *client.Client) error {
 		return fmt.Errorf("initialize failed: %w", err)
 	}
 
-	fmt.Printf("   ✅ Connected to: %s v%s\n", 
+	fmt.Printf("   ✅ Connected to: %s v%s\n",
 		initResult.ServerInfo.Name, initResult.ServerInfo.Version)
 
 	// Step 2: Discover tools
@@ -92,11 +92,11 @@ func runDemo(ctx context.Context, mcpClient *client.Client) error {
 	if len(tools) > 0 {
 		echoTool := tools[0] // Assuming first tool is echo
 		fmt.Printf("\n3️⃣  Using the '%s' tool...\n", echoTool.Name)
-		
+
 		args := map[string]interface{}{
 			"message": "Hello from the demo client! 👋",
 		}
-		
+
 		result, err := mcpClient.CallTool(ctx, echoTool.Name, args)
 		if err != nil {
 			return fmt.Errorf("tool call failed: %w", err)
@@ -117,13 +117,13 @@ func runDemo(ctx context.Context, mcpClient *client.Client) error {
 
 	if mathToolFound {
 		fmt.Println("\n4️⃣  Performing math calculation...")
-		
+
 		args := map[string]interface{}{
 			"operation": "add",
 			"a":         15,
 			"b":         27,
 		}
-		
+
 		result, err := mcpClient.CallTool(ctx, "math", args)
 		if err != nil {
 			return fmt.Errorf("math tool call failed: %w", err)

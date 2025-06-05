@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -55,11 +54,12 @@ func main() {
 	switch *transport {
 	case "stdio":
 		if *command == "" {
+			cancel()
 			log.Fatal("Command is required for STDIO transport")
 		}
 
 		// Start the server process
-		cmd = exec.CommandContext(ctx, "sh", "-c", *command)
+		cmd = exec.CommandContext(ctx, "sh", "-c", *command) //nolint:gosec // Command comes from user flag
 		stdin, err := cmd.StdinPipe()
 		if err != nil {
 			log.Fatalf("Failed to create stdin pipe: %v", err)
@@ -74,7 +74,7 @@ func main() {
 		}
 		defer func() {
 			if cmd.Process != nil {
-				cmd.Process.Kill()
+				_ = cmd.Process.Kill()
 			}
 		}()
 
@@ -121,7 +121,7 @@ func testMCPClient(ctx context.Context, mcpClient *client.Client) error {
 		return fmt.Errorf("initialize failed: %w", err)
 	}
 
-	fmt.Printf("✅ Initialize successful! Server: %s v%s\n", 
+	fmt.Printf("✅ Initialize successful! Server: %s v%s\n",
 		initResult.ServerInfo.Name, initResult.ServerInfo.Version)
 	fmt.Printf("   Protocol version: %s\n", initResult.ProtocolVersion)
 
@@ -140,12 +140,12 @@ func testMCPClient(ctx context.Context, mcpClient *client.Client) error {
 	// Test 3: Call a tool (if available)
 	if len(tools) > 0 {
 		fmt.Printf("🚀 Testing tools/call with '%s'...\n", tools[0].Name)
-		
+
 		// Try to call the first tool with empty arguments
-		result, err := mcpClient.CallTool(ctx, tools[0].Name, map[string]interface{}{})
-		if err != nil {
+		result, callErr := mcpClient.CallTool(ctx, tools[0].Name, map[string]interface{}{})
+		if callErr != nil {
 			// Tool call might fail due to missing arguments, but that's expected
-			fmt.Printf("⚠️  Tool call failed (expected): %v\n", err)
+			fmt.Printf("⚠️  Tool call failed (expected): %v\n", callErr)
 		} else {
 			fmt.Printf("✅ Tool call successful! Result:\n")
 			for i, content := range result {
@@ -175,14 +175,4 @@ func testMCPClient(ctx context.Context, mcpClient *client.Client) error {
 	}
 
 	return nil
-}
-
-// Helper function to pretty print JSON
-func prettyPrint(v interface{}) {
-	b, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		fmt.Printf("%+v\n", v)
-		return
-	}
-	fmt.Println(string(b))
 }
