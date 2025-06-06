@@ -90,8 +90,8 @@ func TestSSETransportMessageHandler(t *testing.T) {
 
 	transport.handleMessage(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", w.Code)
+	if w.Code != http.StatusAccepted {
+		t.Errorf("Expected status 202, got %d", w.Code)
 	}
 
 	// Check that message was received
@@ -350,8 +350,8 @@ func TestSSETransportMessageHandlerWithCallback(t *testing.T) {
 
 	transport.handleMessage(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", w.Code)
+	if w.Code != http.StatusAccepted {
+		t.Errorf("Expected status 202, got %d", w.Code)
 	}
 
 	// Check that message handler was called
@@ -383,8 +383,8 @@ func TestSSETransportSSEHandler(t *testing.T) {
 		t.Error("SSE handler should set Content-Type to text/event-stream")
 	}
 
-	if w.Header().Get("Cache-Control") != "no-cache" {
-		t.Error("SSE handler should set Cache-Control to no-cache")
+	if w.Header().Get("Cache-Control") != "no-cache, no-transform" {
+		t.Error("SSE handler should set Cache-Control to no-cache, no-transform")
 	}
 }
 
@@ -417,8 +417,8 @@ func TestSSETransportMCPProtocolIntegration(t *testing.T) {
 
 	transport.handleMessage(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", w.Code)
+	if w.Code != http.StatusAccepted {
+		t.Errorf("Expected status 202, got %d", w.Code)
 	}
 
 	// Check that message was received

@@ -46,22 +46,43 @@ class SSEClient:
             )
             response.raise_for_status()
             
+            current_event = None
             for line in response.iter_lines(decode_unicode=True):
                 if self.stop_event.is_set():
                     break
-                    
-                if line.startswith('data: '):
+                
+                if line.startswith('event: '):
+                    current_event = line[7:]  # Remove 'event: ' prefix
+                elif line.startswith('data: '):
                     data = line[6:]  # Remove 'data: ' prefix
-                    try:
-                        message = json.loads(data)
-                        if message.get('type') == 'connected':
-                            self.connected = True
-                            print(f"✓ SSE connected with session: {message.get('sessionId')}")
-                        else:
+                    
+                    if current_event == 'endpoint':
+                        # This is the endpoint URL for posting messages
+                        self.connected = True
+                        print(f"✓ SSE connected, endpoint: {data}")
+                    elif current_event == 'message':
+                        # This is an MCP message
+                        try:
+                            message = json.loads(data)
                             self.responses.append(message)
                             print(f"← Received: {json.dumps(message, indent=2)}")
-                    except json.JSONDecodeError:
-                        print(f"Invalid JSON in SSE data: {data}")
+                        except json.JSONDecodeError:
+                            print(f"Invalid JSON in message data: {data}")
+                    else:
+                        # Try to parse as JSON for backward compatibility
+                        try:
+                            message = json.loads(data)
+                            if message.get('type') == 'connected':
+                                self.connected = True
+                                print(f"✓ SSE connected with session: {message.get('sessionId')}")
+                            else:
+                                self.responses.append(message)
+                                print(f"← Received: {json.dumps(message, indent=2)}")
+                        except json.JSONDecodeError:
+                            print(f"Unknown event '{current_event}' with data: {data}")
+                elif line == '':
+                    # Empty line resets the event type
+                    current_event = None
                         
         except Exception as e:
             print(f"SSE connection error: {e}")
@@ -76,7 +97,11 @@ class SSEClient:
                 timeout=10
             )
             response.raise_for_status()
-            return response.json()
+            # For HTTP 202 Accepted, we expect plain text response
+            if response.status_code == 202:
+                return {"status": "accepted", "text": response.text}
+            else:
+                return response.json()
         except Exception as e:
             print(f"Error sending message: {e}")
             return None
@@ -171,7 +196,7 @@ def test_mcp_workflow():
         print(f"📤 POST response: {post_response}")
         
         # For notifications, we don't expect a response, just check if POST was successful
-        if post_response and post_response.get('status') == 'ok':
+        if post_response and post_response.get('status') == 'accepted':
             print("✓ Initialized notification sent successfully")
         else:
             print(f"❌ Initialized notification failed: {post_response}")

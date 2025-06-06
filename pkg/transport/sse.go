@@ -196,8 +196,11 @@ func (t *SSETransport) Close() error {
 func (t *SSETransport) handleSSE(w http.ResponseWriter, r *http.Request) {
 	// Set SSE headers
 	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -230,17 +233,10 @@ func (t *SSETransport) handleSSE(w http.ResponseWriter, r *http.Request) {
 		close(client.done)
 	}()
 
-	// Send initial connection message with session ID
-	connectionMsg := map[string]interface{}{
-		"type":      "connected",
-		"sessionId": sessionID,
-	}
-	connectionData, err := json.Marshal(connectionMsg)
-	if err != nil {
-		http.Error(w, "Failed to marshal connection message", http.StatusInternalServerError)
-		return
-	}
-	fmt.Fprintf(w, "data: %s\n\n", string(connectionData))
+	// Send endpoint event as per MCP SSE protocol
+	// The client expects an "endpoint" event with the POST URL including sessionId
+	endpointURL := fmt.Sprintf("/message?sessionId=%s", sessionID)
+	fmt.Fprintf(w, "event: endpoint\ndata: %s\n\n", endpointURL)
 	flusher.Flush()
 
 	// Handle client messages
@@ -253,7 +249,7 @@ func (t *SSETransport) handleSSE(w http.ResponseWriter, r *http.Request) {
 		case <-client.done:
 			return
 		case message := <-client.messages:
-			fmt.Fprintf(w, "data: %s\n\n", string(message))
+			fmt.Fprintf(w, "event: message\ndata: %s\n\n", string(message))
 			flusher.Flush()
 		}
 	}
@@ -261,6 +257,16 @@ func (t *SSETransport) handleSSE(w http.ResponseWriter, r *http.Request) {
 
 // handleMessage handles incoming messages from clients
 func (t *SSETransport) handleMessage(w http.ResponseWriter, r *http.Request) {
+	// Set CORS headers
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -327,11 +333,9 @@ func (t *SSETransport) handleMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Always return OK to the HTTP request
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
-		log.Printf("Failed to encode response: %v", err)
-	}
+	// Always return 202 Accepted to the HTTP request (per MCP SSE protocol)
+	w.WriteHeader(http.StatusAccepted)
+	w.Write([]byte("Accepted"))
 }
 
 // handleHealth handles health check requests
