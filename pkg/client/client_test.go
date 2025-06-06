@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/openhands/mcp-server-framework/pkg/mcp"
+	"github.com/protobomb/mcp-server-framework/pkg/mcp"
 )
 
 // MockTransport implements Transport for testing

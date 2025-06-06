@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/openhands/mcp-server-framework/pkg/mcp"
+	"github.com/protobomb/mcp-server-framework/pkg/mcp"
 )
 
 // Client represents an MCP client that can connect to MCP servers
