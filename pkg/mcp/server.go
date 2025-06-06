@@ -26,6 +26,16 @@ func (s *Server) RegisterNotificationHandler(method string, handler Notification
 	s.notifications[method] = handler
 }
 
+// GetHandler returns the handler for a given method
+func (s *Server) GetHandler(method string) Handler {
+	return s.handlers[method]
+}
+
+// GetNotificationHandler returns the notification handler for a given method
+func (s *Server) GetNotificationHandler(method string) NotificationHandler {
+	return s.notifications[method]
+}
+
 // Start starts the MCP server
 func (s *Server) Start(ctx context.Context) error {
 	// Register default handlers
@@ -95,11 +105,14 @@ func (s *Server) handleMessage(ctx context.Context, message []byte) {
 	// Try to parse as request first
 	var request JSONRPCRequest
 	if err := json.Unmarshal(message, &request); err == nil && request.Method != "" {
+		log.Printf("Parsed as request: method=%s, id=%v", request.Method, request.ID)
 		if request.ID != nil {
 			// This is a request
+			log.Printf("Handling as request: %s", request.Method)
 			s.handleRequest(ctx, request)
 		} else {
 			// This is a notification
+			log.Printf("Handling as notification: %s", request.Method)
 			s.handleNotification(ctx, JSONRPCNotification{
 				JSONRPC: request.JSONRPC,
 				Method:  request.Method,
@@ -112,6 +125,7 @@ func (s *Server) handleMessage(ctx context.Context, message []byte) {
 	// Try to parse as notification
 	var notification JSONRPCNotification
 	if err := json.Unmarshal(message, &notification); err == nil && notification.Method != "" {
+		log.Printf("Parsed as notification: %s", notification.Method)
 		s.handleNotification(ctx, notification)
 		return
 	}
@@ -176,6 +190,8 @@ func (s *Server) handleNotification(ctx context.Context, notification JSONRPCNot
 func (s *Server) registerDefaultHandlers() {
 	s.RegisterHandler("initialize", s.handleInitialize)
 	s.RegisterNotificationHandler("initialized", s.handleInitialized)
+	s.RegisterHandler("tools/list", s.handleToolsList)
+	s.RegisterHandler("tools/call", s.handleToolsCall)
 }
 
 // handleInitialize handles the initialize request
@@ -193,7 +209,9 @@ func (s *Server) handleInitialize(ctx context.Context, params json.RawMessage) (
 	return InitializeResult{
 		ProtocolVersion: "2024-11-05",
 		Capabilities: ServerCapabilities{
-			Tools: &ToolsCapability{},
+			Tools: &ToolsCapability{
+				ListChanged: true,
+			},
 		},
 		ServerInfo: ServerInfo{
 			Name:    "mcp-server-framework",
@@ -206,6 +224,69 @@ func (s *Server) handleInitialize(ctx context.Context, params json.RawMessage) (
 func (s *Server) handleInitialized(ctx context.Context, params json.RawMessage) error {
 	log.Println("Server initialized")
 	return nil
+}
+
+// handleToolsList handles the tools/list request
+func (s *Server) handleToolsList(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	// Return a list of available tools
+	tools := []Tool{
+		{
+			Name:        "echo",
+			Description: "Echo back the provided message",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"message": map[string]interface{}{
+						"type":        "string",
+						"description": "The message to echo back",
+					},
+				},
+				"required": []string{"message"},
+			},
+		},
+	}
+
+	return ToolsListResult{
+		Tools: tools,
+	}, nil
+}
+
+// handleToolsCall handles the tools/call request
+func (s *Server) handleToolsCall(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var callParams ToolsCallParams
+	if err := json.Unmarshal(params, &callParams); err != nil {
+		return nil, &RPCError{
+			Code:    InvalidParams,
+			Message: "Invalid tool call parameters",
+		}
+	}
+
+	switch callParams.Name {
+	case "echo":
+		// Handle echo tool
+		message, ok := callParams.Arguments["message"].(string)
+		if !ok {
+			return nil, &RPCError{
+				Code:    InvalidParams,
+				Message: "Missing or invalid 'message' argument",
+			}
+		}
+
+		return ToolsCallResult{
+			Content: []Content{
+				{
+					Type: "text",
+					Text: fmt.Sprintf("Echo: %s", message),
+				},
+			},
+		}, nil
+
+	default:
+		return nil, &RPCError{
+			Code:    InvalidParams,
+			Message: fmt.Sprintf("Unknown tool: %s", callParams.Name),
+		}
+	}
 }
 
 // Utility functions for creating common responses

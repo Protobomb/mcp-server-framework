@@ -318,3 +318,300 @@ func TestNewRPCErrorFunctions(t *testing.T) {
 		})
 	}
 }
+
+func TestServerGetHandler(t *testing.T) {
+	transport := NewMockTransport()
+	server := NewServer(transport)
+
+	// Register a test handler
+	testHandler := func(ctx context.Context, params json.RawMessage) (interface{}, error) {
+		return "test result", nil
+	}
+	server.RegisterHandler("test", testHandler)
+
+	// Test getting existing handler
+	handler := server.GetHandler("test")
+	if handler == nil {
+		t.Error("GetHandler returned nil for existing handler")
+	}
+
+	// Test getting non-existent handler
+	handler = server.GetHandler("nonexistent")
+	if handler != nil {
+		t.Error("GetHandler should return nil for non-existent handler")
+	}
+}
+
+func TestServerToolsListHandler(t *testing.T) {
+	transport := NewMockTransport()
+	server := NewServer(transport)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := server.Start(ctx)
+	if err != nil {
+		t.Fatalf("Failed to start server: %v", err)
+	}
+
+	// Send tools/list request
+	request := JSONRPCRequest{
+		JSONRPC: JSONRPCVersion,
+		ID:      1,
+		Method:  "tools/list",
+	}
+
+	requestBytes, _ := json.Marshal(request)
+	transport.SendMessage(requestBytes)
+
+	// Give some time for processing
+	time.Sleep(10 * time.Millisecond)
+
+	// Check response
+	responseBytes := transport.GetSentMessage()
+	if responseBytes == nil {
+		t.Fatal("No response received")
+	}
+
+	var response JSONRPCResponse
+	err = json.Unmarshal(responseBytes, &response)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+
+	if response.Error != nil {
+		t.Errorf("Unexpected error in response: %v", response.Error)
+	}
+
+	if response.Result == nil {
+		t.Error("No result in response")
+	}
+
+	// Check that result contains tools
+	resultMap, ok := response.Result.(map[string]interface{})
+	if !ok {
+		t.Error("Result is not a map")
+	}
+
+	tools, exists := resultMap["tools"]
+	if !exists {
+		t.Error("Result does not contain 'tools' field")
+	}
+
+	toolsArray, ok := tools.([]interface{})
+	if !ok {
+		t.Error("Tools field is not an array")
+	}
+
+	// Should have at least the echo tool
+	if len(toolsArray) == 0 {
+		t.Error("No tools returned")
+	}
+}
+
+func TestServerToolsCallHandler(t *testing.T) {
+	transport := NewMockTransport()
+	server := NewServer(transport)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := server.Start(ctx)
+	if err != nil {
+		t.Fatalf("Failed to start server: %v", err)
+	}
+
+	// Send tools/call request for echo tool
+	request := JSONRPCRequest{
+		JSONRPC: JSONRPCVersion,
+		ID:      1,
+		Method:  "tools/call",
+		Params:  json.RawMessage(`{"name":"echo","arguments":{"message":"test message"}}`),
+	}
+
+	requestBytes, _ := json.Marshal(request)
+	transport.SendMessage(requestBytes)
+
+	// Give some time for processing
+	time.Sleep(10 * time.Millisecond)
+
+	// Check response
+	responseBytes := transport.GetSentMessage()
+	if responseBytes == nil {
+		t.Fatal("No response received")
+	}
+
+	var response JSONRPCResponse
+	err = json.Unmarshal(responseBytes, &response)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+
+	if response.Error != nil {
+		t.Errorf("Unexpected error in response: %v", response.Error)
+	}
+
+	if response.Result == nil {
+		t.Error("No result in response")
+	}
+
+	// Check that result contains the echoed message
+	resultMap, ok := response.Result.(map[string]interface{})
+	if !ok {
+		t.Error("Result is not a map")
+	}
+
+	content, exists := resultMap["content"]
+	if !exists {
+		t.Error("Result does not contain 'content' field")
+	}
+
+	contentArray, ok := content.([]interface{})
+	if !ok {
+		t.Error("Content field is not an array")
+	}
+
+	if len(contentArray) == 0 {
+		t.Error("No content returned")
+	}
+
+	firstContent, ok := contentArray[0].(map[string]interface{})
+	if !ok {
+		t.Error("First content item is not a map")
+	}
+
+	text, exists := firstContent["text"]
+	if !exists {
+		t.Error("Content does not contain 'text' field")
+	}
+
+	if text != "Echo: test message" {
+		t.Errorf("Expected 'Echo: test message', got '%v'", text)
+	}
+}
+
+func TestServerToolsCallInvalidTool(t *testing.T) {
+	transport := NewMockTransport()
+	server := NewServer(transport)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := server.Start(ctx)
+	if err != nil {
+		t.Fatalf("Failed to start server: %v", err)
+	}
+
+	// Send tools/call request for non-existent tool
+	request := JSONRPCRequest{
+		JSONRPC: JSONRPCVersion,
+		ID:      1,
+		Method:  "tools/call",
+		Params:  json.RawMessage(`{"name":"nonexistent","arguments":{}}`),
+	}
+
+	requestBytes, _ := json.Marshal(request)
+	transport.SendMessage(requestBytes)
+
+	// Give some time for processing
+	time.Sleep(10 * time.Millisecond)
+
+	// Check response
+	responseBytes := transport.GetSentMessage()
+	if responseBytes == nil {
+		t.Fatal("No response received")
+	}
+
+	var response JSONRPCResponse
+	err = json.Unmarshal(responseBytes, &response)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+
+	if response.Error == nil {
+		t.Error("Expected error for non-existent tool")
+	}
+
+	if response.Error.Code != InvalidParams {
+		t.Errorf("Expected InvalidParams error, got %d", response.Error.Code)
+	}
+}
+
+func TestServerInitializeCapabilities(t *testing.T) {
+	transport := NewMockTransport()
+	server := NewServer(transport)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := server.Start(ctx)
+	if err != nil {
+		t.Fatalf("Failed to start server: %v", err)
+	}
+
+	// Send initialize request
+	request := JSONRPCRequest{
+		JSONRPC: JSONRPCVersion,
+		ID:      1,
+		Method:  "initialize",
+		Params:  json.RawMessage(`{"protocolVersion":"2024-11-05"}`),
+	}
+
+	requestBytes, _ := json.Marshal(request)
+	transport.SendMessage(requestBytes)
+
+	// Give some time for processing
+	time.Sleep(10 * time.Millisecond)
+
+	// Check response
+	responseBytes := transport.GetSentMessage()
+	if responseBytes == nil {
+		t.Fatal("No response received")
+	}
+
+	var response JSONRPCResponse
+	err = json.Unmarshal(responseBytes, &response)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+
+	if response.Error != nil {
+		t.Errorf("Unexpected error in response: %v", response.Error)
+	}
+
+	// Check capabilities
+	resultMap, ok := response.Result.(map[string]interface{})
+	if !ok {
+		t.Error("Result is not a map")
+	}
+
+	capabilities, exists := resultMap["capabilities"]
+	if !exists {
+		t.Error("Result does not contain 'capabilities' field")
+	}
+
+	capMap, ok := capabilities.(map[string]interface{})
+	if !ok {
+		t.Error("Capabilities field is not a map")
+	}
+
+	// Check tools capability
+	tools, exists := capMap["tools"]
+	if !exists {
+		t.Error("Capabilities do not contain 'tools' field")
+	}
+
+	toolsMap, ok := tools.(map[string]interface{})
+	if !ok {
+		t.Error("Tools capability is not a map")
+	}
+
+	listChanged, exists := toolsMap["listChanged"]
+	if !exists {
+		t.Error("Tools capability does not contain 'listChanged' field")
+	}
+
+	if listChanged != true {
+		t.Error("Tools listChanged should be true")
+	}
+}

@@ -145,3 +145,20 @@ type TextContent struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
 }
+
+// ToolsListResult represents the result of tools/list
+type ToolsListResult struct {
+	Tools []Tool `json:"tools"`
+}
+
+// ToolsCallParams represents the parameters for tools/call
+type ToolsCallParams struct {
+	Name      string                 `json:"name"`
+	Arguments map[string]interface{} `json:"arguments,omitempty"`
+}
+
+// ToolsCallResult represents the result of tools/call
+type ToolsCallResult struct {
+	Content []Content `json:"content"`
+	IsError bool      `json:"isError,omitempty"`
+}

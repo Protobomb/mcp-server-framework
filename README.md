@@ -22,7 +22,7 @@ A simple, reusable Model Context Protocol (MCP) server framework written in Go. 
 go run cmd/mcp-server/main.go
 
 # SSE transport
-go run cmd/mcp-server/main.go -transport=sse -addr=:8080
+go run cmd/mcp-server/main.go -transport=sse -addr=8080
 ```
 
 ### As a Library
@@ -158,7 +158,12 @@ go get github.com/openhands/mcp-server-framework
 
 ```bash
 docker pull ghcr.io/openhands/mcp-server-framework:latest
-docker run -p 8080:8080 ghcr.io/openhands/mcp-server-framework:latest -transport=sse
+
+# Run with SSE transport (default)
+docker run -p 8080:8080 ghcr.io/openhands/mcp-server-framework:latest
+
+# Run with STDIO transport
+docker run -i ghcr.io/openhands/mcp-server-framework:latest -transport=stdio
 ```
 
 ## API Reference
@@ -265,25 +270,26 @@ transport := transport.NewSSETransport(":8080")
 ```
 
 SSE endpoints:
-- `GET /events` - SSE event stream
-- `POST /send` - Send messages to server
+- `GET /sse` - SSE event stream (with optional ?sessionId parameter)
+- `POST /message` - Send messages to server (requires ?sessionId parameter)
 - `GET /health` - Health check
 
 ## Built-in Handlers
 
-The framework includes these built-in handlers:
+The framework includes these built-in MCP handlers:
 
-- `initialize` - MCP initialization
+- `initialize` - MCP initialization handshake
 - `initialized` - MCP initialization complete notification
+- `tools/list` - List available tools
+- `tools/call` - Call a specific tool
 
-## Example Handlers
+## Built-in Tools
 
-The standalone server includes example handlers:
+The framework includes these example tools:
 
-- `echo` - Echo back the input message
-- `add` - Add two numbers
-- `listMethods` - List available methods
-- `ping` - Ping notification handler
+- `echo` - Echo back the provided message
+  - Parameters: `message` (string) - The message to echo back
+  - Returns: Text content with "Echo: {message}"
 
 ## Testing
 
@@ -340,11 +346,14 @@ GOOS=darwin GOARCH=amd64 go build -o mcp-server-darwin cmd/mcp-server/main.go
 # Build Docker image
 docker build -t mcp-server-framework .
 
-# Run with STDIO
-docker run -i mcp-server-framework
+# Run with SSE transport (default)
+docker run -p 8080:8080 mcp-server-framework
 
-# Run with SSE
-docker run -p 8080:8080 mcp-server-framework -transport=sse -addr=:8080
+# Run with STDIO transport
+docker run -i mcp-server-framework -transport=stdio
+
+# Run with custom SSE address
+docker run -p 9090:9090 mcp-server-framework -addr=9090
 ```
 
 ## Examples
@@ -356,7 +365,7 @@ docker run -p 8080:8080 mcp-server-framework -transport=sse -addr=:8080
 ./mcp-client -transport=stdio -command='./mcp-server'
 
 # Test with HTTP server (start server first)
-./mcp-server -transport=sse -addr=:8080 &
+./mcp-server -transport=sse -addr=8080 &
 ./mcp-client -transport=http -addr=http://localhost:8080
 
 # Interactive demo
@@ -372,8 +381,11 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | ./mcp-server
 ### SSE Client Example
 
 ```javascript
+// Generate or get session ID
+const sessionId = 'your-session-id'; // or generate one
+
 // Connect to SSE endpoint
-const eventSource = new EventSource('http://localhost:8080/events');
+const eventSource = new EventSource(`http://localhost:8080/sse?sessionId=${sessionId}`);
 
 eventSource.onmessage = function(event) {
     const data = JSON.parse(event.data);
@@ -381,7 +393,7 @@ eventSource.onmessage = function(event) {
 };
 
 // Send a message
-fetch('http://localhost:8080/send', {
+fetch(`http://localhost:8080/message?sessionId=${sessionId}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

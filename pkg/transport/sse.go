@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+	"crypto/rand"
+	"encoding/hex"
 )
 
 // SSETransport implements the Transport interface using Server-Sent Events
@@ -19,6 +21,7 @@ type SSETransport struct {
 	done     chan struct{}
 	mu       sync.RWMutex
 	closed   bool
+	messageHandler func([]byte) ([]byte, error)
 }
 
 // SSEClient represents a connected SSE client
@@ -36,6 +39,13 @@ type SSEMessage struct {
 	Data interface{} `json:"data"`
 }
 
+// generateSessionID generates a random session ID
+func generateSessionID() string {
+	bytes := make([]byte, 16)
+	rand.Read(bytes)
+	return hex.EncodeToString(bytes)
+}
+
 // NewSSETransport creates a new SSE transport
 func NewSSETransport(addr string) *SSETransport {
 	return &SSETransport{
@@ -44,6 +54,13 @@ func NewSSETransport(addr string) *SSETransport {
 		messages: make(chan []byte, 100),
 		done:     make(chan struct{}),
 	}
+}
+
+// SetMessageHandler sets the message handler function
+func (t *SSETransport) SetMessageHandler(handler func([]byte) ([]byte, error)) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.messageHandler = handler
 }
 
 // Start starts the SSE transport
@@ -56,8 +73,8 @@ func (t *SSETransport) Start(ctx context.Context) error {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/events", t.handleSSE)
-	mux.HandleFunc("/send", t.handleSend)
+	mux.HandleFunc("/sse", t.handleSSE)
+	mux.HandleFunc("/message", t.handleMessage)
 	mux.HandleFunc("/health", t.handleHealth)
 
 	t.server = &http.Server{
@@ -185,13 +202,14 @@ func (t *SSETransport) handleSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clientID := r.URL.Query().Get("client_id")
-	if clientID == "" {
-		clientID = fmt.Sprintf("client_%d", time.Now().UnixNano())
+	// Get or generate session ID
+	sessionID := r.URL.Query().Get("sessionId")
+	if sessionID == "" {
+		sessionID = generateSessionID()
 	}
 
 	client := &SSEClient{
-		id:       clientID,
+		id:       sessionID,
 		writer:   w,
 		flusher:  flusher,
 		messages: make(chan []byte, 100),
@@ -199,18 +217,23 @@ func (t *SSETransport) handleSSE(w http.ResponseWriter, r *http.Request) {
 	}
 
 	t.mu.Lock()
-	t.clients[clientID] = client
+	t.clients[sessionID] = client
 	t.mu.Unlock()
 
 	defer func() {
 		t.mu.Lock()
-		delete(t.clients, clientID)
+		delete(t.clients, sessionID)
 		t.mu.Unlock()
 		close(client.done)
 	}()
 
-	// Send initial connection message
-	fmt.Fprintf(w, "data: {\"type\":\"connected\",\"client_id\":\"%s\"}\n\n", clientID)
+	// Send initial connection message with session ID
+	connectionMsg := map[string]interface{}{
+		"type":      "connected",
+		"sessionId": sessionID,
+	}
+	connectionData, _ := json.Marshal(connectionMsg)
+	fmt.Fprintf(w, "data: %s\n\n", string(connectionData))
 	flusher.Flush()
 
 	// Handle client messages
@@ -229,10 +252,27 @@ func (t *SSETransport) handleSSE(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleSend handles incoming messages from clients
-func (t *SSETransport) handleSend(w http.ResponseWriter, r *http.Request) {
+// handleMessage handles incoming messages from clients
+func (t *SSETransport) handleMessage(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get session ID from query parameter
+	sessionID := r.URL.Query().Get("sessionId")
+	if sessionID == "" {
+		http.Error(w, "Missing sessionId parameter", http.StatusBadRequest)
+		return
+	}
+
+	// Check if client exists
+	t.mu.RLock()
+	client, exists := t.clients[sessionID]
+	t.mu.RUnlock()
+
+	if !exists {
+		http.Error(w, "Invalid session ID", http.StatusBadRequest)
 		return
 	}
 
@@ -242,14 +282,48 @@ func (t *SSETransport) handleSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	select {
-	case t.messages <- message:
-		w.WriteHeader(http.StatusOK)
-		if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
-			log.Printf("Failed to encode health response: %v", err)
+	// Process the message through the handler if available
+	if t.messageHandler != nil {
+		response, err := t.messageHandler(message)
+		if err != nil {
+			log.Printf("Error processing message: %v", err)
+			// Send error response to client via SSE
+			errorResponse := map[string]interface{}{
+				"jsonrpc": "2.0",
+				"error": map[string]interface{}{
+					"code":    -32603,
+					"message": "Internal error",
+				},
+				"id": nil,
+			}
+			if errorData, err := json.Marshal(errorResponse); err == nil {
+				select {
+				case client.messages <- errorData:
+				default:
+					log.Printf("Client %s buffer full, dropping error response", sessionID)
+				}
+			}
+		} else if response != nil {
+			// Send response to client via SSE
+			select {
+			case client.messages <- response:
+			default:
+				log.Printf("Client %s buffer full, dropping response", sessionID)
+			}
 		}
-	default:
-		http.Error(w, "Message buffer full", http.StatusServiceUnavailable)
+	} else {
+		// Fallback: put message in the general messages channel
+		select {
+		case t.messages <- message:
+		default:
+			log.Printf("Message buffer full, dropping message")
+		}
+	}
+
+	// Always return OK to the HTTP request
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
+		log.Printf("Failed to encode response: %v", err)
 	}
 }
 

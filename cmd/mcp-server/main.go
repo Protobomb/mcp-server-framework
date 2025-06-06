@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/protobomb/mcp-server-framework/pkg/mcp"
@@ -17,7 +18,7 @@ import (
 func main() {
 	var (
 		transportType = flag.String("transport", "stdio", "Transport type: stdio or sse")
-		addr          = flag.String("addr", ":8080", "Address for SSE transport")
+		addr          = flag.String("addr", "8080", "Port for SSE transport (e.g., 8080)")
 		help          = flag.Bool("help", false, "Show help")
 	)
 	flag.Parse()
@@ -29,13 +30,24 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Format address for SSE transport
+	var formattedAddr string
+	if *transportType == "sse" {
+		// If addr doesn't start with ":", add it
+		if !strings.HasPrefix(*addr, ":") {
+			formattedAddr = ":" + *addr
+		} else {
+			formattedAddr = *addr
+		}
+	}
+
 	// Create transport based on type
 	var t mcp.Transport
 	switch *transportType {
 	case "stdio":
 		t = transport.NewSTDIOTransport()
 	case "sse":
-		t = transport.NewSSETransport(*addr)
+		t = transport.NewSSETransport(formattedAddr)
 	default:
 		log.Fatalf("Unknown transport type: %s", *transportType)
 	}
@@ -45,6 +57,65 @@ func main() {
 
 	// Register example handlers
 	registerExampleHandlers(server)
+
+	// Set up message handler for SSE transport
+	if sseTransport, ok := t.(*transport.SSETransport); ok {
+		sseTransport.SetMessageHandler(func(message []byte) ([]byte, error) {
+			// Create a temporary context for message processing
+			msgCtx := context.Background()
+			
+			// Parse the JSON-RPC message to check if it's a request or notification
+			var request mcp.JSONRPCRequest
+			if err := json.Unmarshal(message, &request); err != nil {
+				return nil, fmt.Errorf("invalid JSON-RPC message: %w", err)
+			}
+
+			// Check if this is a notification (no ID field)
+			if request.ID == nil {
+				// This is a notification - handle it and don't send a response
+				if handler := server.GetNotificationHandler(request.Method); handler != nil {
+					if err := handler(msgCtx, request.Params); err != nil {
+						log.Printf("Error handling notification %s: %v", request.Method, err)
+					}
+				} else {
+					log.Printf("No handler for notification: %s", request.Method)
+				}
+				// Return nil for notifications (no response expected)
+				return nil, nil
+			}
+
+			// This is a request - handle it and send a response
+			response := mcp.JSONRPCResponse{
+				JSONRPC: mcp.JSONRPCVersion,
+				ID:      request.ID,
+			}
+
+			// Get the handler for this method
+			if handler := server.GetHandler(request.Method); handler != nil {
+				result, err := handler(msgCtx, request.Params)
+				if err != nil {
+					if rpcErr, ok := err.(*mcp.RPCError); ok {
+						response.Error = rpcErr
+					} else {
+						response.Error = &mcp.RPCError{
+							Code:    mcp.InternalError,
+							Message: err.Error(),
+						}
+					}
+				} else {
+					response.Result = result
+				}
+			} else {
+				response.Error = &mcp.RPCError{
+					Code:    mcp.MethodNotFound,
+					Message: fmt.Sprintf("Method not found: %s", request.Method),
+				}
+			}
+
+			// Marshal the response
+			return json.Marshal(response)
+		})
+	}
 
 	// Setup context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
@@ -69,9 +140,9 @@ func main() {
 	log.Printf("MCP server started with %s transport", *transportType)
 	if *transportType == "sse" {
 		log.Printf("SSE endpoints available at:")
-		log.Printf("  Events: http://%s/events", *addr)
-		log.Printf("  Send: http://%s/send", *addr)
-		log.Printf("  Health: http://%s/health", *addr)
+		log.Printf("  Events: http://localhost%s/sse", formattedAddr)
+		log.Printf("  Message: http://localhost%s/message", formattedAddr)
+		log.Printf("  Health: http://localhost%s/health", formattedAddr)
 	}
 
 	// Wait for context cancellation
