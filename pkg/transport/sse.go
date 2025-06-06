@@ -335,7 +335,10 @@ func (t *SSETransport) handleMessage(w http.ResponseWriter, r *http.Request) {
 
 	// Always return 202 Accepted to the HTTP request (per MCP SSE protocol)
 	w.WriteHeader(http.StatusAccepted)
-	w.Write([]byte("Accepted"))
+	if _, err := w.Write([]byte("Accepted")); err != nil {
+		// Log error but don't fail the request since status was already written
+		log.Printf("Failed to write response body: %v", err)
+	}
 }
 
 // handleHealth handles health check requests
