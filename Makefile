@@ -58,7 +58,11 @@ coverage: test-coverage ## Generate coverage report
 
 lint: ## Run linter
 	@which golangci-lint > /dev/null || (echo "Installing golangci-lint..." && go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest)
-	$(shell go env GOPATH)/bin/golangci-lint run
+	@if command -v golangci-lint >/dev/null 2>&1; then \
+		golangci-lint run; \
+	else \
+		$(shell go env GOPATH)/bin/golangci-lint run; \
+	fi
 
 fmt: ## Format code
 	$(GOCMD) fmt ./...

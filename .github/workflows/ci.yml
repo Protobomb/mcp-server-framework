@@ -85,9 +85,6 @@ jobs:
         version: latest
         args: --timeout=5m
 
-    - name: Run make lint
-      run: make lint
-
   build:
     name: Build
     runs-on: ubuntu-latest
