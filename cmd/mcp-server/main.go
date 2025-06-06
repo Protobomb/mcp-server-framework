@@ -19,13 +19,26 @@ const (
 	transportSSE = "sse"
 )
 
+var debugMode bool
+
+// debugLog prints debug messages only when debug mode is enabled
+func debugLog(format string, args ...interface{}) {
+	if debugMode {
+		log.Printf("[DEBUG] "+format, args...)
+	}
+}
+
 func main() {
 	var (
 		transportType = flag.String("transport", "stdio", "Transport type: stdio or sse")
 		addr          = flag.String("addr", "8080", "Port for SSE transport (e.g., 8080)")
+		debug         = flag.Bool("debug", false, "Enable debug logging")
 		help          = flag.Bool("help", false, "Show help")
 	)
 	flag.Parse()
+
+	// Set global debug mode
+	debugMode = *debug
 
 	if *help {
 		fmt.Println("MCP Server Framework")
@@ -51,7 +64,7 @@ func main() {
 	case "stdio":
 		t = transport.NewSTDIOTransport()
 	case transportSSE:
-		t = transport.NewSSETransport(formattedAddr)
+		t = transport.NewSSETransportWithDebug(formattedAddr, debugMode)
 	default:
 		log.Fatalf("Unknown transport type: %s", *transportType)
 	}

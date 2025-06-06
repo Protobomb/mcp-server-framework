@@ -22,6 +22,7 @@ type SSETransport struct {
 	mu             sync.RWMutex
 	closed         bool
 	messageHandler func([]byte) ([]byte, error)
+	debug          bool
 }
 
 // SSEClient represents a connected SSE client
@@ -56,6 +57,25 @@ func NewSSETransport(addr string) *SSETransport {
 		clients:  make(map[string]*SSEClient),
 		messages: make(chan []byte, 100),
 		done:     make(chan struct{}),
+		debug:    false,
+	}
+}
+
+// NewSSETransportWithDebug creates a new SSE transport with debug logging
+func NewSSETransportWithDebug(addr string, debug bool) *SSETransport {
+	return &SSETransport{
+		addr:     addr,
+		clients:  make(map[string]*SSEClient),
+		messages: make(chan []byte, 100),
+		done:     make(chan struct{}),
+		debug:    debug,
+	}
+}
+
+// debugLog prints debug messages only when debug mode is enabled
+func (t *SSETransport) debugLog(format string, args ...interface{}) {
+	if t.debug {
+		log.Printf("[DEBUG] "+format, args...)
 	}
 }
 
@@ -194,6 +214,10 @@ func (t *SSETransport) Close() error {
 
 // handleSSE handles SSE connections
 func (t *SSETransport) handleSSE(w http.ResponseWriter, r *http.Request) {
+	t.debugLog("SSE connection request from %s", r.RemoteAddr)
+	t.debugLog("Request URL: %s", r.URL.String())
+	t.debugLog("Request headers: %v", r.Header)
+	
 	// Set SSE headers
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache, no-transform")
@@ -204,6 +228,7 @@ func (t *SSETransport) handleSSE(w http.ResponseWriter, r *http.Request) {
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
+		t.debugLog("Streaming unsupported for client %s", r.RemoteAddr)
 		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
 		return
 	}
@@ -212,6 +237,9 @@ func (t *SSETransport) handleSSE(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.URL.Query().Get("sessionId")
 	if sessionID == "" {
 		sessionID = generateSessionID()
+		t.debugLog("Generated new session ID: %s", sessionID)
+	} else {
+		t.debugLog("Using existing session ID: %s", sessionID)
 	}
 
 	client := &SSEClient{
@@ -224,50 +252,66 @@ func (t *SSETransport) handleSSE(w http.ResponseWriter, r *http.Request) {
 
 	t.mu.Lock()
 	t.clients[sessionID] = client
+	clientCount := len(t.clients)
 	t.mu.Unlock()
+	t.debugLog("Added client %s, total clients: %d", sessionID, clientCount)
 
 	defer func() {
 		t.mu.Lock()
 		delete(t.clients, sessionID)
+		remainingClients := len(t.clients)
 		t.mu.Unlock()
 		close(client.done)
+		t.debugLog("Removed client %s, remaining clients: %d", sessionID, remainingClients)
 	}()
 
 	// Send endpoint event as per MCP SSE protocol
 	// The client expects an "endpoint" event with the POST URL including sessionId
 	endpointURL := fmt.Sprintf("/message?sessionId=%s", sessionID)
+	t.debugLog("Sending endpoint event: %s", endpointURL)
 	fmt.Fprintf(w, "event: endpoint\ndata: %s\n\n", endpointURL)
 	flusher.Flush()
+	t.debugLog("Endpoint event sent and flushed for session %s", sessionID)
 
 	// Handle client messages
+	t.debugLog("Starting message loop for session %s", sessionID)
 	for {
 		select {
 		case <-r.Context().Done():
+			t.debugLog("Client context done for session %s", sessionID)
 			return
 		case <-t.done:
+			t.debugLog("Transport done for session %s", sessionID)
 			return
 		case <-client.done:
+			t.debugLog("Client done for session %s", sessionID)
 			return
 		case message := <-client.messages:
+			t.debugLog("Sending message to client %s: %s", sessionID, string(message))
 			fmt.Fprintf(w, "event: message\ndata: %s\n\n", string(message))
 			flusher.Flush()
+			t.debugLog("Message sent and flushed to client %s", sessionID)
 		}
 	}
 }
 
 // handleMessage handles incoming messages from clients
 func (t *SSETransport) handleMessage(w http.ResponseWriter, r *http.Request) {
+	t.debugLog("Message request from %s: %s %s", r.RemoteAddr, r.Method, r.URL.String())
+	
 	// Set CORS headers
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 
 	if r.Method == http.MethodOptions {
+		t.debugLog("OPTIONS request handled")
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 
 	if r.Method != http.MethodPost {
+		t.debugLog("Invalid method %s, expected POST", r.Method)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -275,9 +319,11 @@ func (t *SSETransport) handleMessage(w http.ResponseWriter, r *http.Request) {
 	// Get session ID from query parameter
 	sessionID := r.URL.Query().Get("sessionId")
 	if sessionID == "" {
+		t.debugLog("Missing sessionId parameter")
 		http.Error(w, "Missing sessionId parameter", http.StatusBadRequest)
 		return
 	}
+	t.debugLog("Processing message for session %s", sessionID)
 
 	// Check if client exists
 	t.mu.RLock()

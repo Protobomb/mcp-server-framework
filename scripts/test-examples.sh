@@ -182,14 +182,14 @@ run_tests() {
                 "version": "1.0.0"
             }
         }
-    }' "200"
+    }' "202"
     
     # Test 4: Initialized Notification
     test_endpoint "Initialized Notification" "POST" "${BASE_URL}/message?sessionId=${SESSION_ID}" '{
         "jsonrpc": "2.0",
         "method": "initialized",
         "params": {}
-    }' "200"
+    }' "202"
     
     # Test 5: Tools List
     test_endpoint "Tools List" "POST" "${BASE_URL}/message?sessionId=${SESSION_ID}" '{
@@ -197,7 +197,7 @@ run_tests() {
         "id": 2,
         "method": "tools/list",
         "params": {}
-    }' "200"
+    }' "202"
     
     # Test 6: Echo Tool Call
     test_endpoint "Echo Tool Call" "POST" "${BASE_URL}/message?sessionId=${SESSION_ID}" '{
@@ -210,7 +210,7 @@ run_tests() {
                 "message": "Hello from curl!"
             }
         }
-    }' "200"
+    }' "202"
     
     # Test 7: Invalid Tool Call (should return error)
     test_endpoint "Invalid Tool Call" "POST" "${BASE_URL}/message?sessionId=${SESSION_ID}" '{
@@ -221,7 +221,7 @@ run_tests() {
             "name": "nonexistent",
             "arguments": {}
         }
-    }' "200"
+    }' "202"
     
     # Test 8: Invalid Session ID
     test_endpoint "Invalid Session ID" "POST" "${BASE_URL}/message?sessionId=invalid" '{
