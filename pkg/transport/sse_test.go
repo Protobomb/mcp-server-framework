@@ -11,6 +11,10 @@ import (
 	"time"
 )
 
+const (
+	messageURLPattern = "/message?sessionId="
+)
+
 func TestNewSSETransport(t *testing.T) {
 	transport := NewSSETransport(":8080")
 	if transport == nil {
@@ -80,7 +84,7 @@ func TestSSETransportMessageHandler(t *testing.T) {
 	message := map[string]string{"test": "message"}
 	messageBytes, _ := json.Marshal(message)
 
-	req := httptest.NewRequest("POST", "/message?sessionId="+sessionID, bytes.NewReader(messageBytes))
+	req := httptest.NewRequest("POST", messageURLPattern+sessionID, bytes.NewReader(messageBytes))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -263,7 +267,7 @@ func TestSSETransportSessionManagement(t *testing.T) {
 
 	// Test session ID generation
 	sessionID := generateSessionID()
-	if len(sessionID) == 0 {
+	if sessionID == "" {
 		t.Error("Generated session ID is empty")
 	}
 
@@ -340,7 +344,7 @@ func TestSSETransportMessageHandlerWithCallback(t *testing.T) {
 	message := map[string]string{"test": "message"}
 	messageBytes, _ := json.Marshal(message)
 
-	req := httptest.NewRequest("POST", "/message?sessionId="+sessionID, bytes.NewReader(messageBytes))
+	req := httptest.NewRequest("POST", messageURLPattern+sessionID, bytes.NewReader(messageBytes))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -359,7 +363,7 @@ func TestSSETransportMessageHandlerWithCallback(t *testing.T) {
 func TestSSETransportSSEHandler(t *testing.T) {
 	transport := NewSSETransport(":8080")
 
-	// Test SSE endpoint with a context that will be cancelled
+	// Test SSE endpoint with a context that will be canceled
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -407,7 +411,7 @@ func TestSSETransportMCPProtocolIntegration(t *testing.T) {
 	}
 	requestBytes, _ := json.Marshal(toolsListRequest)
 
-	req := httptest.NewRequest("POST", "/message?sessionId="+sessionID, bytes.NewReader(requestBytes))
+	req := httptest.NewRequest("POST", messageURLPattern+sessionID, bytes.NewReader(requestBytes))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -473,7 +477,7 @@ func TestSSETransportErrorHandling(t *testing.T) {
 	transport.clients[sessionID] = client
 	transport.mu.Unlock()
 
-	req = httptest.NewRequest("POST", "/message?sessionId="+sessionID, strings.NewReader("invalid json"))
+	req = httptest.NewRequest("POST", messageURLPattern+sessionID, strings.NewReader("invalid json"))
 	req.Header.Set("Content-Type", "application/json")
 	w = httptest.NewRecorder()
 

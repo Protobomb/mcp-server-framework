@@ -2,25 +2,25 @@ package transport
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"sync"
 	"time"
-	"crypto/rand"
-	"encoding/hex"
 )
 
 // SSETransport implements the Transport interface using Server-Sent Events
 type SSETransport struct {
-	addr     string
-	server   *http.Server
-	clients  map[string]*SSEClient
-	messages chan []byte
-	done     chan struct{}
-	mu       sync.RWMutex
-	closed   bool
+	addr           string
+	server         *http.Server
+	clients        map[string]*SSEClient
+	messages       chan []byte
+	done           chan struct{}
+	mu             sync.RWMutex
+	closed         bool
 	messageHandler func([]byte) ([]byte, error)
 }
 
@@ -42,7 +42,10 @@ type SSEMessage struct {
 // generateSessionID generates a random session ID
 func generateSessionID() string {
 	bytes := make([]byte, 16)
-	rand.Read(bytes)
+	if _, err := rand.Read(bytes); err != nil {
+		// Fallback to a simple timestamp-based ID if random generation fails
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
 	return hex.EncodeToString(bytes)
 }
 
@@ -232,7 +235,11 @@ func (t *SSETransport) handleSSE(w http.ResponseWriter, r *http.Request) {
 		"type":      "connected",
 		"sessionId": sessionID,
 	}
-	connectionData, _ := json.Marshal(connectionMsg)
+	connectionData, err := json.Marshal(connectionMsg)
+	if err != nil {
+		http.Error(w, "Failed to marshal connection message", http.StatusInternalServerError)
+		return
+	}
 	fmt.Fprintf(w, "data: %s\n\n", string(connectionData))
 	flusher.Flush()
 

@@ -15,6 +15,10 @@ import (
 	"github.com/protobomb/mcp-server-framework/pkg/transport"
 )
 
+const (
+	transportSSE = "sse"
+)
+
 func main() {
 	var (
 		transportType = flag.String("transport", "stdio", "Transport type: stdio or sse")
@@ -32,7 +36,7 @@ func main() {
 
 	// Format address for SSE transport
 	var formattedAddr string
-	if *transportType == "sse" {
+	if *transportType == transportSSE {
 		// If addr doesn't start with ":", add it
 		if !strings.HasPrefix(*addr, ":") {
 			formattedAddr = ":" + *addr
@@ -46,7 +50,7 @@ func main() {
 	switch *transportType {
 	case "stdio":
 		t = transport.NewSTDIOTransport()
-	case "sse":
+	case transportSSE:
 		t = transport.NewSSETransport(formattedAddr)
 	default:
 		log.Fatalf("Unknown transport type: %s", *transportType)
@@ -63,7 +67,7 @@ func main() {
 		sseTransport.SetMessageHandler(func(message []byte) ([]byte, error) {
 			// Create a temporary context for message processing
 			msgCtx := context.Background()
-			
+
 			// Parse the JSON-RPC message to check if it's a request or notification
 			var request mcp.JSONRPCRequest
 			if err := json.Unmarshal(message, &request); err != nil {
@@ -138,7 +142,7 @@ func main() {
 	}
 
 	log.Printf("MCP server started with %s transport", *transportType)
-	if *transportType == "sse" {
+	if *transportType == transportSSE {
 		log.Printf("SSE endpoints available at:")
 		log.Printf("  Events: http://localhost%s/sse", formattedAddr)
 		log.Printf("  Message: http://localhost%s/message", formattedAddr)
