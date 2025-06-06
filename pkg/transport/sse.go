@@ -217,7 +217,7 @@ func (t *SSETransport) handleSSE(w http.ResponseWriter, r *http.Request) {
 	t.debugLog("SSE connection request from %s", r.RemoteAddr)
 	t.debugLog("Request URL: %s", r.URL.String())
 	t.debugLog("Request headers: %v", r.Header)
-	
+
 	// Set SSE headers
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache, no-transform")
@@ -298,7 +298,7 @@ func (t *SSETransport) handleSSE(w http.ResponseWriter, r *http.Request) {
 // handleMessage handles incoming messages from clients
 func (t *SSETransport) handleMessage(w http.ResponseWriter, r *http.Request) {
 	t.debugLog("Message request from %s: %s %s", r.RemoteAddr, r.Method, r.URL.String())
-	
+
 	// Set CORS headers
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")

@@ -82,14 +82,7 @@ linters:
     - unused
     - whitespace
   
-  disable:
-    - maligned
-    - deadcode
-    - golint
-    - interfacer
-    - scopelint
-    - structcheck
-    - varcheck
+  disable: []
 
 issues:
   exclude-rules:

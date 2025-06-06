@@ -21,13 +21,6 @@ const (
 
 var debugMode bool
 
-// debugLog prints debug messages only when debug mode is enabled
-func debugLog(format string, args ...interface{}) {
-	if debugMode {
-		log.Printf("[DEBUG] "+format, args...)
-	}
-}
-
 func main() {
 	var (
 		transportType = flag.String("transport", "stdio", "Transport type: stdio or sse")
