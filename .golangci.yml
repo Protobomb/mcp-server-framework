@@ -37,14 +37,14 @@ linters-settings:
     line-length: 120
   
   goimports:
-    local-prefixes: github.com/openhands/mcp-server-framework
+    local-prefixes: github.com/protobomb/mcp-server-framework
   
   depguard:
     rules:
       Main:
         allow:
           - $gostd
-          - github.com/openhands/mcp-server-framework
+          - github.com/protobomb/mcp-server-framework
   
   gocritic:
     enabled-tags:

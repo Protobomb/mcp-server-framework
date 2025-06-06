@@ -8,8 +8,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/openhands/mcp-server-framework/pkg/transport"
-	"github.com/openhands/mcp-server-framework/pkg/mcp"
+	"github.com/protobomb/mcp-server-framework/pkg/mcp"
+	"github.com/protobomb/mcp-server-framework/pkg/transport"
 )
 
 func main() {

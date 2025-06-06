@@ -1,3 +1,3 @@
-module github.com/openhands/mcp-server-framework
+module github.com/protobomb/mcp-server-framework
 
 go 1.21
