@@ -35,8 +35,8 @@ import (
     "encoding/json"
     "log"
 
-    "github.com/openhands/mcp-server-framework/internal/transport"
-    "github.com/openhands/mcp-server-framework/pkg/mcp"
+    "github.com/protobomb/mcp-server-framework/pkg/transport"
+    "github.com/protobomb/mcp-server-framework/pkg/mcp"
 )
 
 func main() {
@@ -293,24 +293,67 @@ The framework includes these example tools:
 
 ## Testing
 
+The framework includes comprehensive testing with both unit and integration tests.
+
+### Quick Testing
+
 ```bash
-# Run all tests
+# Run all tests (unit + integration)
+make test-all
+
+# Run only unit tests
 make test
+
+# Run only integration tests
+make test-integration
 
 # Run tests with coverage
 make test-coverage
+
+# Run all checks (format, lint, test)
+make check
+```
+
+### Test Coverage
+
+The framework has **42 comprehensive test cases** covering:
+
+- **SSE Transport**: 14 tests covering session management, message handling, CORS, error handling
+- **STDIO Transport**: 9 tests covering transport lifecycle and message handling  
+- **MCP Server**: 13 tests covering handlers, tools, capabilities, and protocol compliance
+- **MCP Client**: 14 tests covering client operations, timeouts, and error handling
+
+### Integration Testing
+
+Integration tests automatically:
+1. Start the MCP server with SSE transport
+2. Test complete MCP protocol flow (initialize → initialized → tools/list → tools/call)
+3. Verify request/response matching and notification handling
+4. Clean up server process
+
+### Manual Testing
+
+```bash
+# Manual unit testing
+go test ./pkg/...
+go test -v -race ./pkg/...
+go test -cover ./pkg/...
+
+# Test with mcp-cli (requires Node.js)
+./mcp-server -transport=sse -addr=8080 &
+npx @modelcontextprotocol/cli connect sse http://localhost:8080/sse
 
 # Test client with STDIO server
 make test-client-stdio
 
 # Test client with HTTP server  
 make test-client-http
-
-# Manual testing
-go test ./...
-go test -cover ./...
-go test -v ./...
 ```
+
+### Test Scripts
+
+- `scripts/test_sse_integration.py` - Python-based SSE integration test
+- `scripts/test-examples.sh` - Bash-based endpoint testing script
 
 ## Building
 
