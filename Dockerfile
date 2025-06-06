@@ -48,4 +48,4 @@ EXPOSE 8080
 ENTRYPOINT ["./mcp-server"]
 
 # Default arguments (can be overridden)
-CMD ["-transport=stdio"]
+CMD ["-transport=sse", "-addr=8080"]

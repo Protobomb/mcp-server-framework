@@ -11,6 +11,10 @@ import (
 	"time"
 )
 
+const (
+	messageURLPattern = "/message?sessionId="
+)
+
 func TestNewSSETransport(t *testing.T) {
 	transport := NewSSETransport(":8080")
 	if transport == nil {
@@ -61,21 +65,33 @@ func TestSSETransportHealthHandler(t *testing.T) {
 	}
 }
 
-func TestSSETransportSendHandler(t *testing.T) {
+func TestSSETransportMessageHandler(t *testing.T) {
 	transport := NewSSETransport(":8080")
+
+	// Create a mock client
+	sessionID := generateSessionID()
+	client := &SSEClient{
+		id:       sessionID,
+		messages: make(chan []byte, 10),
+		done:     make(chan struct{}),
+	}
+
+	transport.mu.Lock()
+	transport.clients[sessionID] = client
+	transport.mu.Unlock()
 
 	// Test valid JSON
 	message := map[string]string{"test": "message"}
 	messageBytes, _ := json.Marshal(message)
 
-	req := httptest.NewRequest("POST", "/send", bytes.NewReader(messageBytes))
+	req := httptest.NewRequest("POST", messageURLPattern+sessionID, bytes.NewReader(messageBytes))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
-	transport.handleSend(w, req)
+	transport.handleMessage(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", w.Code)
+	if w.Code != http.StatusAccepted {
+		t.Errorf("Expected status 202, got %d", w.Code)
 	}
 
 	// Check that message was received
@@ -94,27 +110,27 @@ func TestSSETransportSendHandler(t *testing.T) {
 	}
 }
 
-func TestSSETransportSendHandlerInvalidMethod(t *testing.T) {
+func TestSSETransportMessageHandlerInvalidMethod(t *testing.T) {
 	transport := NewSSETransport(":8080")
 
-	req := httptest.NewRequest("GET", "/send", http.NoBody)
+	req := httptest.NewRequest("GET", "/message", http.NoBody)
 	w := httptest.NewRecorder()
 
-	transport.handleSend(w, req)
+	transport.handleMessage(w, req)
 
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("Expected status 405, got %d", w.Code)
 	}
 }
 
-func TestSSETransportSendHandlerInvalidJSON(t *testing.T) {
+func TestSSETransportMessageHandlerInvalidJSON(t *testing.T) {
 	transport := NewSSETransport(":8080")
 
-	req := httptest.NewRequest("POST", "/send", strings.NewReader("invalid json"))
+	req := httptest.NewRequest("POST", "/message", strings.NewReader("invalid json"))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
-	transport.handleSend(w, req)
+	transport.handleMessage(w, req)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("Expected status 400, got %d", w.Code)
@@ -243,5 +259,231 @@ func TestSSETransportReceive(t *testing.T) {
 		}
 	case <-time.After(100 * time.Millisecond):
 		t.Error("Timeout waiting for message")
+	}
+}
+
+func TestSSETransportSessionManagement(t *testing.T) {
+	transport := NewSSETransport(":8080")
+
+	// Test session ID generation
+	sessionID := generateSessionID()
+	if sessionID == "" {
+		t.Error("Generated session ID is empty")
+	}
+
+	// Test adding client
+	client := &SSEClient{
+		id:       sessionID,
+		messages: make(chan []byte, 10),
+		done:     make(chan struct{}),
+	}
+
+	transport.mu.Lock()
+	transport.clients[sessionID] = client
+	transport.mu.Unlock()
+
+	// Test client count in health endpoint
+	req := httptest.NewRequest("GET", "/health", http.NoBody)
+	w := httptest.NewRecorder()
+
+	transport.handleHealth(w, req)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+
+	if response["clients"] != float64(1) {
+		t.Errorf("Expected 1 client, got %v", response["clients"])
+	}
+
+	// Test removing client
+	transport.mu.Lock()
+	delete(transport.clients, sessionID)
+	transport.mu.Unlock()
+
+	req = httptest.NewRequest("GET", "/health", http.NoBody)
+	w = httptest.NewRecorder()
+
+	transport.handleHealth(w, req)
+
+	err = json.Unmarshal(w.Body.Bytes(), &response)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+
+	if response["clients"] != float64(0) {
+		t.Errorf("Expected 0 clients, got %v", response["clients"])
+	}
+}
+
+func TestSSETransportMessageHandlerWithCallback(t *testing.T) {
+	transport := NewSSETransport(":8080")
+
+	// Create a mock client
+	sessionID := generateSessionID()
+	client := &SSEClient{
+		id:       sessionID,
+		messages: make(chan []byte, 10),
+		done:     make(chan struct{}),
+	}
+
+	transport.mu.Lock()
+	transport.clients[sessionID] = client
+	transport.mu.Unlock()
+
+	// Set up a mock message handler
+	var receivedMessage []byte
+	transport.SetMessageHandler(func(message []byte) ([]byte, error) {
+		receivedMessage = message
+		return []byte(`{"result": "processed"}`), nil
+	})
+
+	// Test message handling
+	message := map[string]string{"test": "message"}
+	messageBytes, _ := json.Marshal(message)
+
+	req := httptest.NewRequest("POST", messageURLPattern+sessionID, bytes.NewReader(messageBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	transport.handleMessage(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Errorf("Expected status 202, got %d", w.Code)
+	}
+
+	// Check that message handler was called
+	if !bytes.Equal(receivedMessage, messageBytes) {
+		t.Errorf("Message not passed correctly to handler")
+	}
+}
+
+func TestSSETransportSSEHandler(t *testing.T) {
+	transport := NewSSETransport(":8080")
+
+	// Test SSE endpoint with a context that will be canceled
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req := httptest.NewRequest("GET", "/sse", http.NoBody)
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	// Cancel the context immediately to prevent hanging
+	cancel()
+
+	// This is a basic test - full SSE testing would require more complex setup
+	// We'll test that the handler exists and responds appropriately
+	transport.handleSSE(w, req)
+
+	// The SSE handler should set appropriate headers
+	if w.Header().Get("Content-Type") != "text/event-stream" {
+		t.Error("SSE handler should set Content-Type to text/event-stream")
+	}
+
+	if w.Header().Get("Cache-Control") != "no-cache, no-transform" {
+		t.Error("SSE handler should set Cache-Control to no-cache, no-transform")
+	}
+}
+
+func TestSSETransportMCPProtocolIntegration(t *testing.T) {
+	transport := NewSSETransport(":8080")
+
+	// Create a mock client
+	sessionID := generateSessionID()
+	client := &SSEClient{
+		id:       sessionID,
+		messages: make(chan []byte, 10),
+		done:     make(chan struct{}),
+	}
+
+	transport.mu.Lock()
+	transport.clients[sessionID] = client
+	transport.mu.Unlock()
+
+	// Test tools/list request
+	toolsListRequest := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "tools/list",
+	}
+	requestBytes, _ := json.Marshal(toolsListRequest)
+
+	req := httptest.NewRequest("POST", messageURLPattern+sessionID, bytes.NewReader(requestBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	transport.handleMessage(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Errorf("Expected status 202, got %d", w.Code)
+	}
+
+	// Check that message was received
+	select {
+	case msg := <-transport.Receive():
+		var received map[string]interface{}
+		err := json.Unmarshal(msg, &received)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal received message: %v", err)
+		}
+		if received["method"] != "tools/list" {
+			t.Errorf("Expected method 'tools/list', got '%v'", received["method"])
+		}
+		if received["jsonrpc"] != "2.0" {
+			t.Errorf("Expected jsonrpc '2.0', got '%v'", received["jsonrpc"])
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Timeout waiting for message")
+	}
+}
+
+func TestSSETransportErrorHandling(t *testing.T) {
+	transport := NewSSETransport(":8080")
+
+	// Test missing session ID
+	req := httptest.NewRequest("POST", "/message", http.NoBody)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	transport.handleMessage(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected status 400 for missing session ID, got %d", w.Code)
+	}
+
+	// Test invalid session ID
+	req = httptest.NewRequest("POST", "/message?sessionId=invalid", strings.NewReader(`{"test": "message"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+
+	transport.handleMessage(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected status 400 for invalid session ID, got %d", w.Code)
+	}
+
+	// Test invalid JSON with valid session
+	sessionID := generateSessionID()
+	client := &SSEClient{
+		id:       sessionID,
+		messages: make(chan []byte, 10),
+		done:     make(chan struct{}),
+	}
+
+	transport.mu.Lock()
+	transport.clients[sessionID] = client
+	transport.mu.Unlock()
+
+	req = httptest.NewRequest("POST", messageURLPattern+sessionID, strings.NewReader("invalid json"))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+
+	transport.handleMessage(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected status 400 for invalid JSON, got %d", w.Code)
 	}
 }

@@ -1,0 +1,5 @@
+{
+  "sse_servers": ["http://localhost:8080/sse"],
+  "stdio_servers": [],
+  "shttp_servers": []
+}

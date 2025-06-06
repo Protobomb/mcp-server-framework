@@ -33,14 +33,25 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-go-
 
-    - name: Download dependencies
-      run: go mod download
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
 
-    - name: Run tests
-      run: go test -v -race -coverprofile=coverage.out ./...
+    - name: Install Python dependencies
+      run: pip install requests
+
+    - name: Download dependencies
+      run: make deps
+
+    - name: Run unit tests
+      run: make test
+
+    - name: Run integration tests
+      run: make test-integration
 
     - name: Generate coverage report
-      run: go tool cover -html=coverage.out -o coverage.html
+      run: make test-coverage
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
@@ -100,13 +111,7 @@ jobs:
       env:
         GOOS: ${{ matrix.goos }}
         GOARCH: ${{ matrix.goarch }}
-      run: |
-        mkdir -p dist
-        if [ "$GOOS" = "windows" ]; then
-          go build -ldflags="-s -w" -o dist/mcp-server-${{ matrix.goos }}-${{ matrix.goarch }}.exe cmd/mcp-server/main.go
-        else
-          go build -ldflags="-s -w" -o dist/mcp-server-${{ matrix.goos }}-${{ matrix.goarch }} cmd/mcp-server/main.go
-        fi
+      run: make build-all
 
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
