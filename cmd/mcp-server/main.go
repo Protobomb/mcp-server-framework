@@ -10,7 +10,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/openhands/mcp-server-framework/internal/transport"
+	"github.com/openhands/mcp-server-framework/pkg/transport"
 	"github.com/openhands/mcp-server-framework/pkg/mcp"
 )
 
