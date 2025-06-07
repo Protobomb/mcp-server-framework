@@ -299,40 +299,45 @@ class HTTPStreamsClient:
                 return False
             
             init_response = response.json()
-            if 'result' in init_response and 'sessionId' in init_response['result']:
+            
+            # Check for session ID in response headers (HTTP Streams) or body (SSE)
+            if 'Mcp-Session-Id' in response.headers:
+                self.session_id = response.headers['Mcp-Session-Id']
+                print(f"Got session ID from header: {self.session_id}")
+            elif 'result' in init_response and 'sessionId' in init_response['result']:
                 self.session_id = init_response['result']['sessionId']
-                print(f"Got session ID: {self.session_id}")
-                
-                # Now start SSE stream with session ID
-                headers = {
-                    'Accept': 'text/event-stream',
-                    'Cache-Control': 'no-cache',
-                    'Connection': 'keep-alive',
-                    'Mcp-Session-Id': self.session_id
-                }
-                
-                stream_response = self.session.get(
-                    f"{self.base_url}/mcp",
-                    headers=headers,
-                    stream=True,
-                    timeout=None
-                )
-                
-                if stream_response.status_code == 200:
-                    self.stream_response = stream_response
-                    self.running = True
-                    self.stream_thread = threading.Thread(target=self._read_stream)
-                    self.stream_thread.daemon = True
-                    self.stream_thread.start()
-                    
-                    time.sleep(0.5)  # Give stream time to establish
-                    self.initialized = True
-                    return True
-                else:
-                    print(f"SSE stream failed with status {stream_response.status_code}")
-                    return False
+                print(f"Got session ID from body: {self.session_id}")
             else:
                 print(f"No session ID in initialize response: {init_response}")
+                return False
+                
+            # Now start SSE stream with session ID
+            headers = {
+                'Accept': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
+                'Mcp-Session-Id': self.session_id
+            }
+            
+            stream_response = self.session.get(
+                f"{self.base_url}/mcp",
+                headers=headers,
+                stream=True,
+                timeout=None
+            )
+            
+            if stream_response.status_code == 200:
+                self.stream_response = stream_response
+                self.running = True
+                self.stream_thread = threading.Thread(target=self._read_stream)
+                self.stream_thread.daemon = True
+                self.stream_thread.start()
+                
+                time.sleep(0.5)  # Give stream time to establish
+                self.initialized = True
+                return True
+            else:
+                print(f"SSE stream failed with status {stream_response.status_code}")
                 return False
                 
         except Exception as e:
@@ -426,7 +431,10 @@ class HTTPStreamsClient:
         """Close the client connection"""
         self.running = False
         if self.stream_response:
-            self.stream_response.close()
+            try:
+                self.stream_response.close()
+            except Exception:
+                pass  # Ignore cleanup errors
         if self.stream_thread:
             self.stream_thread.join(timeout=1)
 

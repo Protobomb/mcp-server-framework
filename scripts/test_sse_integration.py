@@ -9,6 +9,9 @@ import requests
 import threading
 import time
 import sys
+import subprocess
+import signal
+import os
 from urllib.parse import urljoin
 
 class SSEClient:
@@ -261,14 +264,107 @@ def test_mcp_workflow(base_url=None):
     finally:
         client.disconnect()
 
-if __name__ == "__main__":
-    import argparse
+def start_server(port=8080):
+    """Start the MCP server for testing"""
+    try:
+        # Build the server first
+        print("🔨 Building MCP server...")
+        build_result = subprocess.run(['make', 'build'], 
+                                    cwd='/workspace/mcp-server-framework',
+                                    capture_output=True, text=True, timeout=30)
+        if build_result.returncode != 0:
+            print(f"❌ Build failed: {build_result.stderr}")
+            return None
+        
+        print("✓ Build successful")
+        
+        # Start the server
+        print(f"🚀 Starting SSE server on port {port}...")
+        server_process = subprocess.Popen([
+            './mcp-server', 
+            '-transport=sse', 
+            f'-addr={port}',
+            '-debug'
+        ], cwd='/workspace/mcp-server-framework')
+        
+        # Wait for server to start
+        time.sleep(2)
+        
+        # Check if server is running
+        try:
+            health_response = requests.get(f"http://localhost:{port}/health", timeout=5)
+            if health_response.status_code == 200:
+                print(f"✓ Server started successfully on port {port}")
+                return server_process
+            else:
+                print(f"❌ Server health check failed")
+                server_process.terminate()
+                return None
+        except Exception as e:
+            print(f"❌ Server not responding: {e}")
+            server_process.terminate()
+            return None
+            
+    except Exception as e:
+        print(f"❌ Failed to start server: {e}")
+        return None
+
+def main():
+    """Main test function"""
+    port = 8080
+    base_url = "http://localhost:8080"
     
+    # Parse arguments
+    import argparse
     parser = argparse.ArgumentParser(description="Test SSE transport")
     parser.add_argument("--base-url", default="http://localhost:8080", 
                        help="Base URL for the server")
     
     args = parser.parse_args()
     
-    success = test_mcp_workflow(args.base_url)
-    sys.exit(0 if success else 1)
+    # Extract port from base URL if provided
+    if args.base_url != "http://localhost:8080":
+        try:
+            port = int(args.base_url.split(':')[-1])
+            base_url = args.base_url
+        except:
+            base_url = args.base_url
+            port = 8080
+    
+    # Check if server is already running
+    try:
+        health_response = requests.get(f"{base_url}/health", timeout=2)
+        if health_response.status_code == 200:
+            print(f"✓ Server already running at {base_url}")
+            server_process = None
+        else:
+            server_process = start_server(port)
+            if not server_process:
+                sys.exit(1)
+    except:
+        server_process = start_server(port)
+        if not server_process:
+            sys.exit(1)
+    
+    try:
+        # Run the test
+        success = test_mcp_workflow(base_url)
+        
+        if success:
+            print("\n🎉 SSE integration test PASSED!")
+            sys.exit(0)
+        else:
+            print("\n❌ SSE integration test FAILED!")
+            sys.exit(1)
+            
+    finally:
+        if server_process:
+            print("\n🛑 Stopping server...")
+            server_process.terminate()
+            try:
+                server_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                server_process.kill()
+
+if __name__ == "__main__":
+    main()

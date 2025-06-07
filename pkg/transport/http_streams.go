@@ -320,37 +320,30 @@ func (t *HTTPStreamsTransport) handleMessage(w http.ResponseWriter, r *http.Requ
 				return
 			}
 
-			// Parse response to add session ID
-			var responseObj map[string]interface{}
-			if err := json.Unmarshal(response, &responseObj); err == nil {
-				sessionID := t.generateSessionID()
-				
-				// Create session
-				session := &HTTPStreamSession{
-					id:       sessionID,
-					messages: make(chan []byte, 100),
-					done:     make(chan struct{}),
-					active:   false,
-				}
-
-				t.mu.Lock()
-				t.sessions[sessionID] = session
-				t.mu.Unlock()
-
-				// Add session ID to response
-				if result, ok := responseObj["result"].(map[string]interface{}); ok {
-					result["sessionId"] = sessionID
-				}
-
-				// Send direct JSON response
-				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(responseObj)
-				
-				if t.debug {
-					log.Printf("[HTTP-STREAMS] Initialize response sent with session ID %s", sessionID)
-				}
-				return
+			// Generate session ID and create session
+			sessionID := t.generateSessionID()
+			
+			// Create session
+			session := &HTTPStreamSession{
+				id:       sessionID,
+				messages: make(chan []byte, 100),
+				done:     make(chan struct{}),
+				active:   false,
 			}
+
+			t.mu.Lock()
+			t.sessions[sessionID] = session
+			t.mu.Unlock()
+
+			// Send direct JSON response with session ID in header
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Mcp-Session-Id", sessionID)
+			w.Write(response)
+			
+			if t.debug {
+				log.Printf("[HTTP-STREAMS] Initialize response sent with session ID %s", sessionID)
+			}
+			return
 		}
 		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return

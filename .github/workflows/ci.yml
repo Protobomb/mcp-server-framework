@@ -47,8 +47,8 @@ jobs:
     - name: Run unit tests
       run: make test
 
-    - name: Run integration tests
-      run: make test-integration
+    - name: Run integration tests (all transports)
+      run: make test-integration-all
 
     - name: Generate coverage report
       run: make test-coverage
@@ -65,6 +65,41 @@ jobs:
       with:
         name: coverage-report
         path: coverage.html
+
+  transport-tests:
+    name: Transport Integration Tests
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        transport: [stdio, sse, http-streams]
+      fail-fast: false
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    - name: Install Python dependencies
+      run: pip install requests
+
+    - name: Download dependencies
+      run: make deps
+
+    - name: Build server
+      run: make build
+
+    - name: Test ${{ matrix.transport }} transport
+      run: make test-integration-${{ matrix.transport }}
 
   lint:
     name: Lint
@@ -88,7 +123,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [test, lint]
+    needs: [test, transport-tests, lint]
     
     strategy:
       matrix:
@@ -122,7 +157,7 @@ jobs:
   docker:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
-    needs: [test, lint]
+    needs: [test, transport-tests, lint]
     if: github.event_name != 'pull_request'
     
     permissions:
