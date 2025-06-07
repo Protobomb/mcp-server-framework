@@ -265,7 +265,6 @@ def main():
     print("🔨 Building MCP server...")
     try:
         build_result = subprocess.run(['make', 'build'], 
-                                    cwd='/workspace/mcp-server-framework',
                                     capture_output=True, text=True, timeout=30)
         if build_result.returncode != 0:
             print(f"❌ Build failed: {build_result.stderr}")

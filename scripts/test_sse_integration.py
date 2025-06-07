@@ -270,7 +270,6 @@ def start_server(port=8080):
         # Build the server first
         print("🔨 Building MCP server...")
         build_result = subprocess.run(['make', 'build'], 
-                                    cwd='/workspace/mcp-server-framework',
                                     capture_output=True, text=True, timeout=30)
         if build_result.returncode != 0:
             print(f"❌ Build failed: {build_result.stderr}")
@@ -285,8 +284,7 @@ def start_server(port=8080):
             '-transport=sse', 
             f'-addr={port}',
             '-debug'
-        ], cwd='/workspace/mcp-server-framework', 
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         
         # Wait for server to start
         time.sleep(2)
