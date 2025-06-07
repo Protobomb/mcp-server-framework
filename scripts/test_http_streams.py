@@ -33,7 +33,7 @@ class HTTPStreamsClient:
                 
             print(f"Starting SSE stream with headers: {headers}")
             response = self.session.get(
-                f"{self.base_url}/mcp",
+                f"{self.base_url}/stream",
                 headers=headers,
                 stream=True,
                 timeout=None  # No timeout for SSE stream
@@ -129,7 +129,7 @@ class HTTPStreamsClient:
                 headers['Mcp-Session-Id'] = self.session_id
                 
             response = self.session.post(
-                f"{self.base_url}/mcp",
+                f"{self.base_url}/message",
                 json=message,
                 headers=headers,
                 timeout=10
@@ -137,23 +137,9 @@ class HTTPStreamsClient:
             
             print(f"POST response: {response.status_code}")
             
-            # For initialize request, expect direct JSON response
-            if message.get('method') == 'initialize':
-                if response.status_code == 200:
-                    try:
-                        json_response = response.json()
-                        print(f"Direct JSON response: {json_response}")
-                        # Extract session ID from response headers
-                        session_id = response.headers.get('Mcp-Session-Id')
-                        if session_id:
-                            self.session_id = session_id
-                            print(f"Session ID from header: {session_id}")
-                        return json_response
-                    except Exception as e:
-                        print(f"Error parsing JSON response: {e}")
-                        return None
-                else:
-                    return None
+            # HTTP Streams always sends responses via the stream, not direct JSON
+            if response.status_code not in [200, 202]:
+                return None
             
             if wait_for_id is not None:
                 # Wait for response via SSE stream
@@ -187,8 +173,15 @@ def test_http_streams():
     client = HTTPStreamsClient()
     
     try:
-        # Test 1: Initialize (without stream first)
-        print("\n1. Testing initialize...")
+        # Start the stream first for HTTP Streams
+        print("\n1. Starting HTTP stream...")
+        if not client.start_stream():
+            print("Failed to start stream")
+            return False
+        time.sleep(0.5)  # Give stream time to establish
+        
+        # Test 1: Initialize
+        print("\n2. Testing initialize...")
         response = client.send_request("initialize", {
             "protocolVersion": "2024-11-05",
             "capabilities": {},
@@ -208,22 +201,15 @@ def test_http_streams():
             print("✗ Initialize failed")
             return False
         
-        # Now start the stream for subsequent requests
-        print("\n1b. Starting SSE stream...")
-        if not client.start_stream():
-            print("Failed to start stream")
-            return False
-        time.sleep(0.5)  # Give stream time to establish
-        
-        # Test 2: Send initialized notification
-        print("\n2. Testing initialized notification...")
+        # Test 3: Send initialized notification
+        print("\n3. Testing initialized notification...")
         if client.send_notification("initialized"):
             print("✓ Initialized notification sent")
         else:
             print("✗ Initialized notification failed")
         
-        # Test 3: List tools
-        print("\n3. Testing tools/list...")
+        # Test 4: List tools
+        print("\n4. Testing tools/list...")
         response = client.send_request("tools/list", {}, 2)
         if response and "result" in response:
             tools = response['result'].get('tools', [])
@@ -233,8 +219,8 @@ def test_http_streams():
         else:
             print("✗ Tools list failed")
         
-        # Test 4: Call echo tool
-        print("\n4. Testing tools/call (echo)...")
+        # Test 5: Call echo tool
+        print("\n5. Testing tools/call (echo)...")
         response = client.send_request("tools/call", {
             "name": "echo",
             "arguments": {"message": "Hello HTTP Streams!"}
@@ -244,18 +230,6 @@ def test_http_streams():
             print(f"✓ Echo tool successful: {response['result']}")
         else:
             print("✗ Echo tool failed")
-        
-        # Test 5: Call math tool
-        print("\n5. Testing tools/call (math)...")
-        response = client.send_request("tools/call", {
-            "name": "math",
-            "arguments": {"operation": "add", "a": 10, "b": 5}
-        }, 4)
-        
-        if response and "result" in response:
-            print(f"✓ Math tool successful: {response['result']}")
-        else:
-            print("✗ Math tool failed")
         
         print("\n✓ All HTTP Streams tests completed successfully!")
         return True

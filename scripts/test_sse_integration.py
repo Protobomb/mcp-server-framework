@@ -125,10 +125,10 @@ class SSEClient:
         if self.sse_thread:
             self.sse_thread.join(timeout=2)
 
-def test_mcp_workflow():
+def test_mcp_workflow(base_url=None):
     """Test complete MCP workflow"""
-    port = sys.argv[1] if len(sys.argv) > 1 else "8080"
-    base_url = f"http://localhost:{port}"
+    if base_url is None:
+        base_url = "http://localhost:8080"
     session_id = f"test-session-{int(time.time())}"
     
     print(f"🧪 Starting MCP Integration Test")
@@ -262,5 +262,13 @@ def test_mcp_workflow():
         client.disconnect()
 
 if __name__ == "__main__":
-    success = test_mcp_workflow()
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Test SSE transport")
+    parser.add_argument("--base-url", default="http://localhost:8080", 
+                       help="Base URL for the server")
+    
+    args = parser.parse_args()
+    
+    success = test_mcp_workflow(args.base_url)
     sys.exit(0 if success else 1)

@@ -166,8 +166,8 @@ func main() {
 		log.Printf("  Health: http://localhost%s/health", formattedAddr)
 	} else if *transportType == transportHTTPStreams {
 		log.Printf("HTTP Streams endpoints available at:")
-		log.Printf("  Stream: http://localhost%s/stream", formattedAddr)
-		log.Printf("  Message: http://localhost%s/message", formattedAddr)
+		log.Printf("  MCP: http://localhost%s/mcp", formattedAddr)
+		log.Printf("  Health: http://localhost%s/health", formattedAddr)
 	}
 
 	// Wait for context cancellation
