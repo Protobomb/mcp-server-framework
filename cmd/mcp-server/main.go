@@ -16,15 +16,16 @@ import (
 )
 
 const (
-	transportSSE = "sse"
+	transportSSE         = "sse"
+	transportHTTPStreams = "http-streams"
 )
 
 var debugMode bool
 
 func main() {
 	var (
-		transportType = flag.String("transport", "stdio", "Transport type: stdio or sse")
-		addr          = flag.String("addr", "8080", "Port for SSE transport (e.g., 8080)")
+		transportType = flag.String("transport", "http-streams", "Transport type: stdio, sse, or http-streams")
+		addr          = flag.String("addr", "8080", "Port for SSE/HTTP Streams transport (e.g., 8080)")
 		debug         = flag.Bool("debug", false, "Enable debug logging")
 		help          = flag.Bool("help", false, "Show help")
 	)
@@ -40,9 +41,9 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Format address for SSE transport
+	// Format address for SSE/HTTP Streams transport
 	var formattedAddr string
-	if *transportType == transportSSE {
+	if *transportType == transportSSE || *transportType == transportHTTPStreams {
 		// If addr doesn't start with ":", add it
 		if !strings.HasPrefix(*addr, ":") {
 			formattedAddr = ":" + *addr
@@ -58,6 +59,8 @@ func main() {
 		t = transport.NewSTDIOTransport()
 	case transportSSE:
 		t = transport.NewSSETransportWithDebug(formattedAddr, debugMode)
+	case transportHTTPStreams:
+		t = transport.NewHTTPStreamsTransportWithDebug(formattedAddr, debugMode)
 	default:
 		log.Fatalf("Unknown transport type: %s", *transportType)
 	}
@@ -68,63 +71,71 @@ func main() {
 	// Register example handlers
 	registerExampleHandlers(server)
 
-	// Set up message handler for SSE transport
-	if sseTransport, ok := t.(*transport.SSETransport); ok {
-		sseTransport.SetMessageHandler(func(message []byte) ([]byte, error) {
-			// Create a temporary context for message processing
-			msgCtx := context.Background()
+	// Create shared message handler for SSE and HTTP Streams transports
+	messageHandler := func(message []byte) ([]byte, error) {
+		// Create a temporary context for message processing
+		msgCtx := context.Background()
 
-			// Parse the JSON-RPC message to check if it's a request or notification
-			var request mcp.JSONRPCRequest
-			if err := json.Unmarshal(message, &request); err != nil {
-				return nil, fmt.Errorf("invalid JSON-RPC message: %w", err)
-			}
+		// Parse the JSON-RPC message to check if it's a request or notification
+		var request mcp.JSONRPCRequest
+		if err := json.Unmarshal(message, &request); err != nil {
+			return nil, fmt.Errorf("invalid JSON-RPC message: %w", err)
+		}
 
-			// Check if this is a notification (no ID field)
-			if request.ID == nil {
-				// This is a notification - handle it and don't send a response
-				if handler := server.GetNotificationHandler(request.Method); handler != nil {
-					if err := handler(msgCtx, request.Params); err != nil {
-						log.Printf("Error handling notification %s: %v", request.Method, err)
-					}
-				} else {
-					log.Printf("No handler for notification: %s", request.Method)
-				}
-				// Return nil for notifications (no response expected)
-				return nil, nil
-			}
-
-			// This is a request - handle it and send a response
-			response := mcp.JSONRPCResponse{
-				JSONRPC: mcp.JSONRPCVersion,
-				ID:      request.ID,
-			}
-
-			// Get the handler for this method
-			if handler := server.GetHandler(request.Method); handler != nil {
-				result, err := handler(msgCtx, request.Params)
-				if err != nil {
-					if rpcErr, ok := err.(*mcp.RPCError); ok {
-						response.Error = rpcErr
-					} else {
-						response.Error = &mcp.RPCError{
-							Code:    mcp.InternalError,
-							Message: err.Error(),
-						}
-					}
-				} else {
-					response.Result = result
+		// Check if this is a notification (no ID field)
+		if request.ID == nil {
+			// This is a notification - handle it and don't send a response
+			if handler := server.GetNotificationHandler(request.Method); handler != nil {
+				if err := handler(msgCtx, request.Params); err != nil {
+					log.Printf("Error handling notification %s: %v", request.Method, err)
 				}
 			} else {
-				response.Error = &mcp.RPCError{
-					Code:    mcp.MethodNotFound,
-					Message: fmt.Sprintf("Method not found: %s", request.Method),
-				}
+				log.Printf("No handler for notification: %s", request.Method)
 			}
+			// Return nil for notifications (no response expected)
+			return nil, nil
+		}
 
-			// Marshal the response
-			return json.Marshal(response)
-		})
+		// This is a request - handle it and send a response
+		response := mcp.JSONRPCResponse{
+			JSONRPC: mcp.JSONRPCVersion,
+			ID:      request.ID,
+		}
+
+		// Get the handler for this method
+		if handler := server.GetHandler(request.Method); handler != nil {
+			result, err := handler(msgCtx, request.Params)
+			if err != nil {
+				if rpcErr, ok := err.(*mcp.RPCError); ok {
+					response.Error = rpcErr
+				} else {
+					response.Error = &mcp.RPCError{
+						Code:    mcp.InternalError,
+						Message: err.Error(),
+					}
+				}
+			} else {
+				response.Result = result
+			}
+		} else {
+			response.Error = &mcp.RPCError{
+				Code:    mcp.MethodNotFound,
+				Message: fmt.Sprintf("Method not found: %s", request.Method),
+			}
+		}
+
+		// Marshal the response
+		return json.Marshal(response)
+	}
+
+	// Set up message handler for SSE transport
+	if sseTransport, ok := t.(*transport.SSETransport); ok {
+		sseTransport.SetMessageHandler(messageHandler)
+	}
+
+	// Set up message handler for HTTP Streams transport
+	if httpStreamsTransport, ok := t.(*transport.HTTPStreamsTransport); ok {
+		httpStreamsTransport.SetMessageHandler(messageHandler)
 	}
 
 	// Setup context with cancellation
@@ -153,6 +164,10 @@ func main() {
 		log.Printf("  Events: http://localhost%s/sse", formattedAddr)
 		log.Printf("  Message: http://localhost%s/message", formattedAddr)
 		log.Printf("  Health: http://localhost%s/health", formattedAddr)
+	} else if *transportType == transportHTTPStreams {
+		log.Printf("HTTP Streams endpoints available at:")
+		log.Printf("  Stream: http://localhost%s/stream", formattedAddr)
+		log.Printf("  Message: http://localhost%s/message", formattedAddr)
 	}
 
 	// Wait for context cancellation
