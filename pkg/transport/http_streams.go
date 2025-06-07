@@ -1,3 +1,4 @@
+// Package transport provides HTTP Streams transport implementation for MCP.
 package transport
 
 import (
@@ -81,8 +82,9 @@ func (t *HTTPStreamsTransport) Start(ctx context.Context) error {
 	mux.HandleFunc("/health", t.handleHealth)
 
 	t.server = &http.Server{
-		Addr:    t.addr,
-		Handler: mux,
+		Addr:              t.addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 30 * time.Second,
 	}
 
 	go func() {
@@ -170,7 +172,10 @@ func (t *HTTPStreamsTransport) Close() error {
 // generateSessionID generates a random session ID
 func (t *HTTPStreamsTransport) generateSessionID() string {
 	bytes := make([]byte, 16)
-	rand.Read(bytes)
+	if _, err := rand.Read(bytes); err != nil {
+		// Fallback to timestamp-based ID if random generation fails
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
 	return hex.EncodeToString(bytes)
 }
 
@@ -193,11 +198,12 @@ func (t *HTTPStreamsTransport) handleMCP(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if r.Method == http.MethodGet {
+	switch r.Method {
+	case http.MethodGet:
 		t.handleSSEStream(w, r)
-	} else if r.Method == http.MethodPost {
+	case http.MethodPost:
 		t.handleMessage(w, r)
-	} else {
+	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
@@ -214,17 +220,31 @@ func (t *HTTPStreamsTransport) handleSSEStream(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Get session ID from header
+	sessionID, session, err := t.validateSSESession(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if session == nil {
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	t.setupSSEStream(w, flusher, session, sessionID)
+	t.streamMessages(w, flusher, r, session, sessionID)
+}
+
+// validateSSESession validates the session for SSE connection
+func (t *HTTPStreamsTransport) validateSSESession(r *http.Request) (string, *HTTPStreamSession, error) {
 	sessionID := r.Header.Get("Mcp-Session-Id")
 	if sessionID == "" {
 		if t.debug {
 			log.Printf("[HTTP-STREAMS] Missing Mcp-Session-Id header")
 		}
-		http.Error(w, "Missing Mcp-Session-Id header", http.StatusBadRequest)
-		return
+		return "", nil, fmt.Errorf("missing Mcp-Session-Id header")
 	}
 
-	// Check if session exists
 	t.mu.Lock()
 	session, exists := t.sessions[sessionID]
 	if !exists {
@@ -232,17 +252,23 @@ func (t *HTTPStreamsTransport) handleSSEStream(w http.ResponseWriter, r *http.Re
 			log.Printf("[HTTP-STREAMS] Session %s not found", sessionID)
 		}
 		t.mu.Unlock()
-		http.Error(w, "Session not found", http.StatusNotFound)
-		return
+		return sessionID, nil, nil
 	}
+	t.mu.Unlock()
 
-	// Set up SSE stream
+	return sessionID, session, nil
+}
+
+// setupSSEStream sets up the SSE stream for a session
+func (t *HTTPStreamsTransport) setupSSEStream(
+	w http.ResponseWriter, flusher http.Flusher, session *HTTPStreamSession, sessionID string,
+) {
+	t.mu.Lock()
 	session.writer = w
 	session.flusher = flusher
 	session.active = true
 	t.mu.Unlock()
 
-	// Set SSE headers
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -252,25 +278,18 @@ func (t *HTTPStreamsTransport) handleSSEStream(w http.ResponseWriter, r *http.Re
 		log.Printf("[HTTP-STREAMS] SSE stream established for session %s", sessionID)
 	}
 
-	// Send initial connection message
 	if _, err := fmt.Fprintf(w, ": connected\n\n"); err != nil {
 		return
 	}
 	flusher.Flush()
+}
 
-	// Clean up on disconnect
-	defer func() {
-		t.mu.Lock()
-		if session.active {
-			session.active = false
-		}
-		t.mu.Unlock()
-		if t.debug {
-			log.Printf("[HTTP-STREAMS] SSE stream closed for session %s", sessionID)
-		}
-	}()
+// streamMessages handles the message streaming loop
+func (t *HTTPStreamsTransport) streamMessages(
+	w http.ResponseWriter, flusher http.Flusher, r *http.Request, session *HTTPStreamSession, sessionID string,
+) {
+	defer t.cleanupSSEStream(session, sessionID)
 
-	// Send messages to client via SSE
 	for {
 		select {
 		case message := <-session.messages:
@@ -286,77 +305,108 @@ func (t *HTTPStreamsTransport) handleSSEStream(w http.ResponseWriter, r *http.Re
 	}
 }
 
+// cleanupSSEStream cleans up the SSE stream on disconnect
+func (t *HTTPStreamsTransport) cleanupSSEStream(session *HTTPStreamSession, sessionID string) {
+	t.mu.Lock()
+	if session.active {
+		session.active = false
+	}
+	t.mu.Unlock()
+	if t.debug {
+		log.Printf("[HTTP-STREAMS] SSE stream closed for session %s", sessionID)
+	}
+}
+
 // handleMessage handles incoming HTTP POST messages
 func (t *HTTPStreamsTransport) handleMessage(w http.ResponseWriter, r *http.Request) {
 	if t.debug {
 		log.Printf("[HTTP-STREAMS] Message request from %s", r.RemoteAddr)
 	}
 
-	// Read the message
+	message, parsedMessage, err := t.parseMessage(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	method, ok := parsedMessage["method"].(string)
+	if !ok {
+		http.Error(w, "Missing or invalid method", http.StatusBadRequest)
+		return
+	}
+
+	if method == "initialize" {
+		t.handleInitializeMessage(w, message)
+		return
+	}
+
+	t.handleRegularMessage(w, r, message, parsedMessage)
+}
+
+// parseMessage parses the incoming JSON message
+func (t *HTTPStreamsTransport) parseMessage(r *http.Request) (json.RawMessage, map[string]interface{}, error) {
 	var message json.RawMessage
 	if err := json.NewDecoder(r.Body).Decode(&message); err != nil {
 		if t.debug {
 			log.Printf("[HTTP-STREAMS] Error decoding JSON: %v", err)
 		}
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
+		return nil, nil, fmt.Errorf("invalid JSON")
 	}
 
-	// Parse message to check if it's initialize
 	var parsedMessage map[string]interface{}
 	if err := json.Unmarshal(message, &parsedMessage); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
+		return nil, nil, fmt.Errorf("invalid JSON")
 	}
 
-	method, _ := parsedMessage["method"].(string)
-	
-	// Handle initialize request specially - return direct JSON response with session ID
-	if method == "initialize" {
-		if t.messageHandler != nil {
-			response, err := t.messageHandler(message)
-			if err != nil {
-				http.Error(w, "Internal error", http.StatusInternalServerError)
-				return
-			}
+	return message, parsedMessage, nil
+}
 
-			// Generate session ID and create session
-			sessionID := t.generateSessionID()
-			
-			// Create session
-			session := &HTTPStreamSession{
-				id:       sessionID,
-				messages: make(chan []byte, 100),
-				done:     make(chan struct{}),
-				active:   false,
-			}
-
-			t.mu.Lock()
-			t.sessions[sessionID] = session
-			t.mu.Unlock()
-
-			// Send direct JSON response with session ID in header
-			w.Header().Set("Content-Type", "application/json")
-			w.Header().Set("Mcp-Session-Id", sessionID)
-			w.Write(response)
-			
-			if t.debug {
-				log.Printf("[HTTP-STREAMS] Initialize response sent with session ID %s", sessionID)
-			}
-			return
-		}
+// handleInitializeMessage handles initialize requests
+func (t *HTTPStreamsTransport) handleInitializeMessage(w http.ResponseWriter, message json.RawMessage) {
+	if t.messageHandler == nil {
 		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
 	}
 
-	// For non-initialize requests, get session ID from header
+	response, err := t.messageHandler(message)
+	if err != nil {
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+
+	sessionID := t.generateSessionID()
+	session := &HTTPStreamSession{
+		id:       sessionID,
+		messages: make(chan []byte, 100),
+		done:     make(chan struct{}),
+		active:   false,
+	}
+
+	t.mu.Lock()
+	t.sessions[sessionID] = session
+	t.mu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Mcp-Session-Id", sessionID)
+	if _, err := w.Write(response); err != nil {
+		log.Printf("[HTTP-STREAMS] Failed to write response: %v", err)
+	}
+
+	if t.debug {
+		log.Printf("[HTTP-STREAMS] Initialize response sent with session ID %s", sessionID)
+	}
+}
+
+// handleRegularMessage handles non-initialize requests
+func (t *HTTPStreamsTransport) handleRegularMessage(
+	w http.ResponseWriter, r *http.Request, message json.RawMessage, parsedMessage map[string]interface{},
+) {
 	sessionID := r.Header.Get("Mcp-Session-Id")
 	if sessionID == "" {
 		http.Error(w, "Missing Mcp-Session-Id header", http.StatusBadRequest)
 		return
 	}
 
-	// Check if session exists
 	t.mu.RLock()
 	session, exists := t.sessions[sessionID]
 	t.mu.RUnlock()
@@ -366,53 +416,73 @@ func (t *HTTPStreamsTransport) handleMessage(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Process the message through the handler
+	t.processMessageWithSession(session, sessionID, message, parsedMessage)
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// processMessageWithSession processes a message for a specific session
+func (t *HTTPStreamsTransport) processMessageWithSession(
+	session *HTTPStreamSession, sessionID string, message json.RawMessage, parsedMessage map[string]interface{},
+) {
 	if t.messageHandler != nil {
 		response, err := t.messageHandler(message)
 		if err != nil {
-			log.Printf("[HTTP-STREAMS] Error processing message: %v", err)
-			// Send error response via SSE stream
-			errorResponse := map[string]interface{}{
-				"jsonrpc": "2.0",
-				"error": map[string]interface{}{
-					"code":    -32603,
-					"message": "Internal error",
-				},
-				"id": parsedMessage["id"],
-			}
-			if errorData, err := json.Marshal(errorResponse); err == nil {
-				select {
-				case session.messages <- errorData:
-				default:
-					log.Printf("[HTTP-STREAMS] Session %s buffer full, dropping error response", sessionID)
-				}
-			}
+			t.sendErrorResponse(session, sessionID, parsedMessage, err)
 		} else if response != nil {
-			// Send response via SSE stream
-			select {
-			case session.messages <- response:
-			default:
-				log.Printf("[HTTP-STREAMS] Session %s buffer full, dropping response", sessionID)
-			}
+			t.sendResponse(session, sessionID, response)
 		}
 	} else {
-		// Fallback: put message in the general messages channel
+		t.sendToGeneralChannel(message)
+	}
+}
+
+// sendErrorResponse sends an error response via SSE stream
+func (t *HTTPStreamsTransport) sendErrorResponse(
+	session *HTTPStreamSession, sessionID string, parsedMessage map[string]interface{}, err error,
+) {
+	log.Printf("[HTTP-STREAMS] Error processing message: %v", err)
+	errorResponse := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"error": map[string]interface{}{
+			"code":    -32603,
+			"message": "Internal error",
+		},
+		"id": parsedMessage["id"],
+	}
+	if errorData, err := json.Marshal(errorResponse); err == nil {
 		select {
-		case t.messages <- message:
+		case session.messages <- errorData:
 		default:
-			log.Printf("[HTTP-STREAMS] Message buffer full, dropping message")
+			log.Printf("[HTTP-STREAMS] Session %s buffer full, dropping error response", sessionID)
 		}
 	}
+}
 
-	// Send acknowledgment
-	w.WriteHeader(http.StatusAccepted)
+// sendResponse sends a response via SSE stream
+func (t *HTTPStreamsTransport) sendResponse(session *HTTPStreamSession, sessionID string, response []byte) {
+	select {
+	case session.messages <- response:
+	default:
+		log.Printf("[HTTP-STREAMS] Session %s buffer full, dropping response", sessionID)
+	}
+}
+
+// sendToGeneralChannel sends message to the general messages channel
+func (t *HTTPStreamsTransport) sendToGeneralChannel(message json.RawMessage) {
+	select {
+	case t.messages <- message:
+	default:
+		log.Printf("[HTTP-STREAMS] Message buffer full, dropping message")
+	}
 }
 
 // handleHealth handles health check requests
 func (t *HTTPStreamsTransport) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
+		log.Printf("[HTTP-STREAMS] Failed to encode health response: %v", err)
+	}
 }
 
 // processMessages processes incoming messages
@@ -422,7 +492,9 @@ func (t *HTTPStreamsTransport) processMessages(ctx context.Context) {
 		case message := <-t.messages:
 			if t.messageHandler != nil {
 				if response, err := t.messageHandler(message); err == nil && response != nil {
-					t.Send(response)
+					if err := t.Send(response); err != nil {
+						log.Printf("[HTTP-STREAMS] Failed to send response: %v", err)
+					}
 				}
 			}
 		case <-ctx.Done():

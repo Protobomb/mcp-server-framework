@@ -18,15 +18,15 @@ func TestNewHTTPStreamsTransport(t *testing.T) {
 
 func TestHTTPStreamsTransportStartStop(t *testing.T) {
 	transport := NewHTTPStreamsTransport(":0") // Use random port
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	err := transport.Start(ctx)
 	if err != nil {
 		t.Fatalf("Failed to start transport: %v", err)
 	}
-	
+
 	err = transport.Stop()
 	if err != nil {
 		t.Fatalf("Failed to stop transport: %v", err)
@@ -35,16 +35,16 @@ func TestHTTPStreamsTransportStartStop(t *testing.T) {
 
 func TestHTTPStreamsTransportSend(t *testing.T) {
 	transport := NewHTTPStreamsTransport(":0")
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	err := transport.Start(ctx)
 	if err != nil {
 		t.Fatalf("Failed to start transport: %v", err)
 	}
 	defer transport.Stop()
-	
+
 	message := []byte(`{"jsonrpc":"2.0","method":"test","id":1}`)
 	err = transport.Send(message)
 	if err != nil {
@@ -54,16 +54,16 @@ func TestHTTPStreamsTransportSend(t *testing.T) {
 
 func TestHTTPStreamsTransportReceive(t *testing.T) {
 	transport := NewHTTPStreamsTransport(":0")
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	err := transport.Start(ctx)
 	if err != nil {
 		t.Fatalf("Failed to start transport: %v", err)
 	}
 	defer transport.Stop()
-	
+
 	receiveChan := transport.Receive()
 	if receiveChan == nil {
 		t.Error("Expected receive channel to be non-nil")
