@@ -91,7 +91,7 @@ jobs:
       run: make build
 
     - name: Test STDIO transport
-      run: make test-integration-stdio
+      run: python3 scripts/test_stdio_integration.py
 
   sse-transport-test:
     name: SSE Transport Test
@@ -151,7 +151,7 @@ jobs:
       run: make build
 
     - name: Test HTTP Streams transport
-      run: python3 scripts/test_http_streams_integration.py 8082
+      run: python3 scripts/test_http_streams_integration.py --port 8082
 
   lint:
     name: Lint

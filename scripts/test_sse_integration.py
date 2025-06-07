@@ -285,10 +285,19 @@ def start_server(port=8080):
             '-transport=sse', 
             f'-addr={port}',
             '-debug'
-        ], cwd='/workspace/mcp-server-framework')
+        ], cwd='/workspace/mcp-server-framework', 
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         
         # Wait for server to start
         time.sleep(2)
+        
+        # Check if process is still alive
+        if server_process.poll() is not None:
+            stdout, stderr = server_process.communicate()
+            print(f"❌ Server process exited with code {server_process.returncode}")
+            print(f"STDOUT: {stdout.decode()}")
+            print(f"STDERR: {stderr.decode()}")
+            return None
         
         # Check if server is running
         try:
@@ -310,43 +319,42 @@ def start_server(port=8080):
         return None
 
 def main():
-    """Main test function"""
-    port = 8080
-    base_url = "http://localhost:8080"
-    
-    # Parse arguments
+    """Main test function - runs SSE transport test with its own server"""
     import argparse
     parser = argparse.ArgumentParser(description="Test SSE transport")
-    parser.add_argument("--base-url", default="http://localhost:8080", 
-                       help="Base URL for the server")
+    parser.add_argument("--port", type=int, default=8080, help="Port to run server on")
+    parser.add_argument("--external-server", action="store_true", 
+                       help="Use external server instead of starting our own")
     
     args = parser.parse_args()
     
-    # Extract port from base URL if provided
-    if args.base_url != "http://localhost:8080":
-        try:
-            port = int(args.base_url.split(':')[-1])
-            base_url = args.base_url
-        except:
-            base_url = args.base_url
-            port = 8080
+    port = args.port
+    base_url = f"http://localhost:{port}"
+    server_process = None
     
-    # Check if server is already running
+    print("🧪 Starting SSE Transport Integration Test")
+    print(f"📡 Testing on port {port}")
+    
     try:
-        health_response = requests.get(f"{base_url}/health", timeout=2)
-        if health_response.status_code == 200:
-            print(f"✓ Server already running at {base_url}")
-            server_process = None
-        else:
+        if not args.external_server:
+            # Start our own SSE server
+            print(f"🚀 Starting SSE server on port {port} for integration test...")
             server_process = start_server(port)
             if not server_process:
+                print("❌ Failed to start SSE server")
                 sys.exit(1)
-    except:
-        server_process = start_server(port)
-        if not server_process:
-            sys.exit(1)
-    
-    try:
+        else:
+            # Check if external server is running
+            try:
+                health_response = requests.get(f"{base_url}/health", timeout=2)
+                if health_response.status_code != 200:
+                    print(f"❌ External server not responding at {base_url}")
+                    sys.exit(1)
+                print(f"✓ Using external server at {base_url}")
+            except Exception as e:
+                print(f"❌ External server not available: {e}")
+                sys.exit(1)
+        
         # Run the test
         success = test_mcp_workflow(base_url)
         
@@ -357,9 +365,12 @@ def main():
             print("\n❌ SSE integration test FAILED!")
             sys.exit(1)
             
+    except Exception as e:
+        print(f"❌ Test failed with error: {e}")
+        sys.exit(1)
     finally:
         if server_process:
-            print("\n🛑 Stopping server...")
+            print("\n🛑 Stopping SSE server...")
             server_process.terminate()
             try:
                 server_process.wait(timeout=5)

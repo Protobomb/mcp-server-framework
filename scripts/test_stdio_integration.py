@@ -248,7 +248,8 @@ def test_mcp_workflow(server_binary=None):
     finally:
         client.stop()
 
-if __name__ == "__main__":
+def main():
+    """Main test function - runs STDIO transport test"""
     import argparse
     
     parser = argparse.ArgumentParser(description="Test STDIO transport")
@@ -257,5 +258,31 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
+    print("🧪 Starting STDIO Transport Integration Test")
+    print(f"📡 Testing with binary: {args.server_binary}")
+    
+    # Build the server first
+    print("🔨 Building MCP server...")
+    try:
+        build_result = subprocess.run(['make', 'build'], 
+                                    cwd='/workspace/mcp-server-framework',
+                                    capture_output=True, text=True, timeout=30)
+        if build_result.returncode != 0:
+            print(f"❌ Build failed: {build_result.stderr}")
+            sys.exit(1)
+        print("✓ Build successful")
+    except Exception as e:
+        print(f"❌ Build failed: {e}")
+        sys.exit(1)
+    
     success = test_mcp_workflow(args.server_binary)
-    sys.exit(0 if success else 1)
+    
+    if success:
+        print("\n🎉 STDIO integration test PASSED!")
+        sys.exit(0)
+    else:
+        print("\n❌ STDIO integration test FAILED!")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()

@@ -291,33 +291,42 @@ def start_server(port=8080):
         return None
 
 def main():
-    """Main test function"""
-    port = 8080
-    if len(sys.argv) > 1:
-        try:
-            port = int(sys.argv[1])
-        except ValueError:
-            print("Invalid port number")
-            sys.exit(1)
+    """Main test function - runs HTTP Streams transport test with its own server"""
+    import argparse
+    parser = argparse.ArgumentParser(description="Test HTTP Streams transport")
+    parser.add_argument("--port", type=int, default=8081, help="Port to run server on")
+    parser.add_argument("--external-server", action="store_true", 
+                       help="Use external server instead of starting our own")
     
+    args = parser.parse_args()
+    
+    port = args.port
     base_url = f"http://localhost:{port}"
+    server_process = None
     
-    # Check if server is already running
+    print("🧪 Starting HTTP Streams Transport Integration Test")
+    print(f"📡 Testing on port {port}")
+    
     try:
-        health_response = requests.get(f"{base_url}/health", timeout=2)
-        if health_response.status_code == 200:
-            print(f"✓ Server already running on port {port}")
-            server_process = None
-        else:
+        if not args.external_server:
+            # Start our own HTTP Streams server
+            print(f"🚀 Starting HTTP Streams server on port {port} for integration test...")
             server_process = start_server(port)
             if not server_process:
+                print("❌ Failed to start HTTP Streams server")
                 sys.exit(1)
-    except:
-        server_process = start_server(port)
-        if not server_process:
-            sys.exit(1)
-    
-    try:
+        else:
+            # Check if external server is running
+            try:
+                health_response = requests.get(f"{base_url}/health", timeout=2)
+                if health_response.status_code != 200:
+                    print(f"❌ External server not responding at {base_url}")
+                    sys.exit(1)
+                print(f"✓ Using external server at {base_url}")
+            except Exception as e:
+                print(f"❌ External server not available: {e}")
+                sys.exit(1)
+        
         # Run the test
         success = test_mcp_workflow(base_url)
         
@@ -328,9 +337,12 @@ def main():
             print("\n❌ HTTP Streams integration test FAILED!")
             sys.exit(1)
             
+    except Exception as e:
+        print(f"❌ Test failed with error: {e}")
+        sys.exit(1)
     finally:
         if server_process:
-            print("\n🛑 Stopping server...")
+            print("\n🛑 Stopping HTTP Streams server...")
             server_process.terminate()
             try:
                 server_process.wait(timeout=5)
