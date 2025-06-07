@@ -47,9 +47,6 @@ jobs:
     - name: Run unit tests
       run: make test
 
-    - name: Run integration tests (all transports)
-      run: make test-integration-all
-
     - name: Generate coverage report
       run: make test-coverage
 
@@ -66,14 +63,9 @@ jobs:
         name: coverage-report
         path: coverage.html
 
-  transport-tests:
-    name: Transport Integration Tests
+  stdio-transport-test:
+    name: STDIO Transport Test
     runs-on: ubuntu-latest
-    
-    strategy:
-      matrix:
-        transport: [stdio, sse, http-streams]
-      fail-fast: false
     
     steps:
     - name: Checkout code
@@ -98,8 +90,68 @@ jobs:
     - name: Build server
       run: make build
 
-    - name: Test ${{ matrix.transport }} transport
-      run: make test-integration-${{ matrix.transport }}
+    - name: Test STDIO transport
+      run: make test-integration-stdio
+
+  sse-transport-test:
+    name: SSE Transport Test
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    - name: Install Python dependencies
+      run: pip install requests
+
+    - name: Download dependencies
+      run: make deps
+
+    - name: Build server
+      run: make build
+
+    - name: Test SSE transport
+      run: python3 scripts/test_sse_integration.py
+
+  http-streams-transport-test:
+    name: HTTP Streams Transport Test
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    - name: Install Python dependencies
+      run: pip install requests
+
+    - name: Download dependencies
+      run: make deps
+
+    - name: Build server
+      run: make build
+
+    - name: Test HTTP Streams transport
+      run: python3 scripts/test_http_streams_integration.py 8082
 
   lint:
     name: Lint
@@ -123,7 +175,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [test, transport-tests, lint]
+    needs: [test, stdio-transport-test, sse-transport-test, http-streams-transport-test, lint]
     
     strategy:
       matrix:
@@ -157,7 +209,7 @@ jobs:
   docker:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
-    needs: [test, transport-tests, lint]
+    needs: [test, stdio-transport-test, sse-transport-test, http-streams-transport-test, lint]
     if: github.event_name != 'pull_request'
     
     permissions:
