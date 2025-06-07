@@ -113,17 +113,33 @@ dev: ## Run in development mode with hot reload
 	@which air > /dev/null || (echo "Installing air..." && go install github.com/cosmtrek/air@latest)
 	air
 
-test-integration: build ## Run integration tests
-	@echo "Running integration tests..."
+test-integration: build ## Run integration tests (SSE only - legacy)
+	@echo "Running SSE integration tests..."
 	@./$(BINARY_NAME) -transport=sse -addr=8081 > /dev/null 2>&1 & \
 	SERVER_PID=$$!; \
 	sleep 2; \
-	python3 scripts/test_sse_integration.py 8081; \
+	python3 scripts/test_sse_integration.py --base-url=http://localhost:8081; \
 	TEST_RESULT=$$?; \
 	kill $$SERVER_PID 2>/dev/null || true; \
 	exit $$TEST_RESULT
 
-test-all: test test-integration ## Run all tests (unit + integration)
+test-integration-stdio: build ## Run STDIO integration tests
+	@echo "Running STDIO integration tests..."
+	python3 scripts/test_stdio_integration.py --server-binary=./$(BINARY_NAME)
+
+test-integration-sse: build ## Run SSE integration tests
+	@echo "Running SSE integration tests..."
+	@python3 scripts/test_sse_integration.py --base-url=http://localhost:8081
+
+test-integration-http-streams: build ## Run HTTP Streams integration tests
+	@echo "Running HTTP Streams integration tests..."
+	@python3 scripts/test_http_streams_integration.py 8082
+
+test-integration-all: build ## Run all transport integration tests in parallel
+	@echo "Running all transport integration tests..."
+	python3 scripts/test_all_transports.py --transport=all
+
+test-all: test test-integration-all ## Run all tests (unit + all transport integration)
 
 benchmark: ## Run benchmarks
 	$(GOTEST) -bench=. -benchmem ./...

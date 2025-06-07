@@ -41,11 +41,11 @@ RUN chown appuser:appgroup mcp-server
 # Switch to non-root user
 USER appuser
 
-# Expose port for SSE transport
+# Expose port for HTTP Streams transport
 EXPOSE 8080
 
 # Default command
 ENTRYPOINT ["./mcp-server"]
 
 # Default arguments (can be overridden)
-CMD ["-transport=sse", "-addr=8080"]
+CMD ["-transport=http-streams", "-addr=8080"]
