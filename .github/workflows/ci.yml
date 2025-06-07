@@ -121,7 +121,7 @@ jobs:
       run: make build
 
     - name: Test SSE transport
-      run: python3 scripts/test_sse_integration.py
+      run: python3 scripts/test_sse_integration.py --port 8081
 
   http-streams-transport-test:
     name: HTTP Streams Transport Test
