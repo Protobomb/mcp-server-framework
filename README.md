@@ -1,10 +1,10 @@
 # MCP Server Framework
 
-A simple, reusable Model Context Protocol (MCP) server framework written in Go. This framework supports both STDIO and Server-Sent Events (SSE) transports and can be used as both a library and a standalone executable.
+A simple, reusable Model Context Protocol (MCP) server framework written in Go. This framework supports multiple transport mechanisms including HTTP Streams (MCP-compliant), SSE (Server-Sent Events), and STDIO transports and can be used as both a library and a standalone executable.
 
 ## Features
 
-- 🚀 **Multiple Transports**: Support for STDIO and SSE (Server-Sent Events)
+- 🚀 **Multiple Transports**: Support for HTTP Streams (MCP-compliant), SSE (Server-Sent Events), and STDIO
 - 📦 **Library & Standalone**: Use as a Go library or run as a standalone server
 - 🧪 **Well Tested**: Comprehensive test coverage
 - 🔄 **JSON-RPC 2.0**: Full JSON-RPC 2.0 protocol support
@@ -18,11 +18,14 @@ A simple, reusable Model Context Protocol (MCP) server framework written in Go. 
 ### As a Standalone Server
 
 ```bash
-# STDIO transport (default)
-go run cmd/mcp-server/main.go
+# HTTP Streams transport (default)
+go run cmd/mcp-server/main.go -addr=8080
 
 # SSE transport
 go run cmd/mcp-server/main.go -transport=sse -addr=8080
+
+# STDIO transport
+go run cmd/mcp-server/main.go -transport=stdio
 ```
 
 ### As a Library
@@ -40,9 +43,10 @@ import (
 )
 
 func main() {
-    // Create transport (STDIO or SSE)
-    transport := transport.NewSTDIOTransport()
+    // Create transport (HTTP Streams, SSE, or STDIO)
+    transport := transport.NewHTTPStreamsTransport(mcp.NewServerWithoutTransport(), transport.HTTPStreamsTransportOptions{})
     // transport := transport.NewSSETransport(":8080")
+    // transport := transport.NewSTDIOTransport()
 
     // Create server
     server := mcp.NewServer(transport)
@@ -159,12 +163,79 @@ go get github.com/openhands/mcp-server-framework
 ```bash
 docker pull ghcr.io/openhands/mcp-server-framework:latest
 
-# Run with SSE transport (default)
+# Run with HTTP Streams transport (default)
 docker run -p 8080:8080 ghcr.io/openhands/mcp-server-framework:latest
+
+# Run with SSE transport
+docker run -p 8080:8080 ghcr.io/openhands/mcp-server-framework:latest -transport=sse
 
 # Run with STDIO transport
 docker run -i ghcr.io/openhands/mcp-server-framework:latest -transport=stdio
 ```
+
+## Transport Options
+
+The framework supports multiple transport mechanisms to suit different use cases:
+
+### 1. HTTP Streams Transport (Default)
+- **MCP Streamable HTTP (2024-11-05) compliant**
+- Modern HTTP + SSE hybrid approach
+- Built-in session management with secure session IDs
+- Batch request support for improved efficiency
+- Excellent proxy and firewall compatibility
+- Full MCP specification compliance
+- **Endpoints**: `/mcp` (POST/GET), `/health` (GET)
+- **📖 [Detailed Documentation](docs/HTTP_STREAMS.md)**
+
+```bash
+# Start HTTP Streams server
+./mcp-server -addr=8080
+
+# Test with curl
+curl http://localhost:8080/health
+```
+
+### 2. SSE (Server-Sent Events) Transport
+- Custom SSE implementation for real-time communication
+- Bidirectional communication via SSE + HTTP POST
+- Built-in session management
+- CORS support for web browsers
+- **Endpoints**: `/sse` (GET), `/message` (POST), `/health` (GET)
+- **📖 [Detailed Documentation](docs/SSE.md)**
+
+```bash
+# Start SSE server
+./mcp-server -transport=sse -addr=8080
+
+# Test SSE connection
+curl -N -H "Accept: text/event-stream" http://localhost:8080/sse
+```
+
+### 3. STDIO Transport
+- Standard input/output communication
+- Perfect for command-line tools and scripts
+- Lightweight and efficient
+- No network dependencies
+
+```bash
+# Start STDIO server
+./mcp-server -transport=stdio
+
+# Communicate via stdin/stdout
+echo '{"jsonrpc":"2.0","method":"initialize","id":1,"params":{}}' | ./mcp-server -transport=stdio
+```
+
+### Transport Comparison
+
+| Feature | HTTP Streams | SSE Transport | STDIO |
+|---------|-------------|---------------|-------|
+| MCP Compliance | ✅ Full (2024-11-05) | ⚠️ Custom | ✅ Standard |
+| Session Management | ✅ Built-in | ✅ Built-in | ❌ N/A |
+| Batch Requests | ✅ Supported | ❌ Not supported | ✅ Supported |
+| Web Browser Support | ✅ Excellent | ✅ Good | ❌ N/A |
+| Proxy Compatibility | ✅ Excellent | ⚠️ Limited | ❌ N/A |
+| Network Required | ✅ Yes | ✅ Yes | ❌ No |
+| Use Case | Web apps, APIs | Real-time apps | CLI tools |
 
 ## API Reference
 
@@ -447,6 +518,15 @@ fetch(`http://localhost:8080/message?sessionId=${sessionId}`, {
     })
 });
 ```
+
+## Documentation
+
+Comprehensive documentation is available for all transport mechanisms and features:
+
+- **[HTTP Streams Transport](docs/HTTP_STREAMS.md)** - Complete guide to the MCP-compliant HTTP Streams transport
+- **[SSE Transport](docs/SSE.md)** - Server-Sent Events transport documentation
+- **[API Reference](docs/API.md)** - Complete API documentation with examples
+- **[Testing Guide](docs/TESTING.md)** - Testing strategies and coverage information
 
 ## Contributing
 
