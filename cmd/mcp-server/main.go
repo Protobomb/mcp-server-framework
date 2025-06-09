@@ -255,7 +255,7 @@ func registerExampleHandlers(server *mcp.Server) {
 				"content": []map[string]interface{}{
 					{
 						"type": "text",
-						"text": message,
+						"text": "Echo: " + message,
 					},
 				},
 			}, nil

@@ -615,3 +615,187 @@ func TestServerInitializeCapabilities(t *testing.T) {
 		t.Error("Tools listChanged should be true")
 	}
 }
+
+func TestServerCustomHandlersPreserved(t *testing.T) {
+	transport := NewMockTransport()
+	server := NewServer(transport)
+
+	// Register custom handlers before starting server
+	customToolsListCalled := false
+	customPromptsListCalled := false
+	customResourcesListCalled := false
+
+	customToolsListHandler := func(ctx context.Context, params json.RawMessage) (interface{}, error) {
+		customToolsListCalled = true
+		return map[string]interface{}{
+			"tools": []interface{}{
+				map[string]interface{}{
+					"name":        "custom_tool",
+					"description": "A custom tool",
+					"inputSchema": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"message": map[string]interface{}{
+								"type":        "string",
+								"description": "Message to process",
+							},
+						},
+						"required": []string{"message"},
+					},
+				},
+			},
+		}, nil
+	}
+
+	customPromptsListHandler := func(ctx context.Context, params json.RawMessage) (interface{}, error) {
+		customPromptsListCalled = true
+		return map[string]interface{}{
+			"prompts": []interface{}{},
+		}, nil
+	}
+
+	customResourcesListHandler := func(ctx context.Context, params json.RawMessage) (interface{}, error) {
+		customResourcesListCalled = true
+		return map[string]interface{}{
+			"resources": []interface{}{},
+		}, nil
+	}
+
+	server.RegisterHandler("tools/list", customToolsListHandler)
+	server.RegisterHandler("prompts/list", customPromptsListHandler)
+	server.RegisterHandler("resources/list", customResourcesListHandler)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := server.Start(ctx)
+	if err != nil {
+		t.Fatalf("Failed to start server: %v", err)
+	}
+
+	// Test tools/list uses custom handler
+	request := JSONRPCRequest{
+		JSONRPC: JSONRPCVersion,
+		ID:      1,
+		Method:  "tools/list",
+	}
+
+	requestBytes, _ := json.Marshal(request)
+	transport.SendMessage(requestBytes)
+
+	// Give some time for processing
+	time.Sleep(10 * time.Millisecond)
+
+	// Check response
+	responseBytes := transport.GetSentMessage()
+	if responseBytes == nil {
+		t.Fatal("No response received for tools/list")
+	}
+
+	var response JSONRPCResponse
+	err = json.Unmarshal(responseBytes, &response)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal tools/list response: %v", err)
+	}
+
+	if response.Error != nil {
+		t.Errorf("Unexpected error in tools/list response: %v", response.Error)
+	}
+
+	if !customToolsListCalled {
+		t.Error("Custom tools/list handler was not called")
+	}
+
+	// Verify the custom tool is returned
+	resultMap, ok := response.Result.(map[string]interface{})
+	if !ok {
+		t.Error("tools/list result is not a map")
+	}
+
+	tools, exists := resultMap["tools"]
+	if !exists {
+		t.Error("tools/list result does not contain 'tools' field")
+	}
+
+	toolsArray, ok := tools.([]interface{})
+	if !ok {
+		t.Error("tools field is not an array")
+	}
+
+	if len(toolsArray) != 1 {
+		t.Errorf("Expected 1 custom tool, got %d", len(toolsArray))
+	}
+
+	tool, ok := toolsArray[0].(map[string]interface{})
+	if !ok {
+		t.Error("Tool is not a map")
+	}
+
+	if tool["name"] != "custom_tool" {
+		t.Errorf("Expected custom_tool, got %v", tool["name"])
+	}
+
+	// Test prompts/list uses custom handler
+	request = JSONRPCRequest{
+		JSONRPC: JSONRPCVersion,
+		ID:      2,
+		Method:  "prompts/list",
+	}
+
+	requestBytes, _ = json.Marshal(request)
+	transport.SendMessage(requestBytes)
+
+	// Give some time for processing
+	time.Sleep(10 * time.Millisecond)
+
+	// Check response
+	responseBytes = transport.GetSentMessage()
+	if responseBytes == nil {
+		t.Fatal("No response received for prompts/list")
+	}
+
+	err = json.Unmarshal(responseBytes, &response)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal prompts/list response: %v", err)
+	}
+
+	if response.Error != nil {
+		t.Errorf("Unexpected error in prompts/list response: %v", response.Error)
+	}
+
+	if !customPromptsListCalled {
+		t.Error("Custom prompts/list handler was not called")
+	}
+
+	// Test resources/list uses custom handler
+	request = JSONRPCRequest{
+		JSONRPC: JSONRPCVersion,
+		ID:      3,
+		Method:  "resources/list",
+	}
+
+	requestBytes, _ = json.Marshal(request)
+	transport.SendMessage(requestBytes)
+
+	// Give some time for processing
+	time.Sleep(10 * time.Millisecond)
+
+	// Check response
+	responseBytes = transport.GetSentMessage()
+	if responseBytes == nil {
+		t.Fatal("No response received for resources/list")
+	}
+
+	err = json.Unmarshal(responseBytes, &response)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal resources/list response: %v", err)
+	}
+
+	if response.Error != nil {
+		t.Errorf("Unexpected error in resources/list response: %v", response.Error)
+	}
+
+	if !customResourcesListCalled {
+		t.Error("Custom resources/list handler was not called")
+	}
+}

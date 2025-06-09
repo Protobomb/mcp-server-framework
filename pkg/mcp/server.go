@@ -187,11 +187,21 @@ func (s *Server) handleNotification(ctx context.Context, notification JSONRPCNot
 }
 
 // registerDefaultHandlers registers the default MCP handlers
+// Only registers handlers if they don't already exist (allows custom overrides)
 func (s *Server) registerDefaultHandlers() {
-	s.RegisterHandler("initialize", s.handleInitialize)
-	s.RegisterNotificationHandler("initialized", s.handleInitialized)
-	s.RegisterHandler("tools/list", s.handleToolsList)
-	s.RegisterHandler("tools/call", s.handleToolsCall)
+	// Only register if not already registered (allows custom handlers to override)
+	if s.GetHandler("initialize") == nil {
+		s.RegisterHandler("initialize", s.handleInitialize)
+	}
+	if s.GetNotificationHandler("initialized") == nil {
+		s.RegisterNotificationHandler("initialized", s.handleInitialized)
+	}
+	if s.GetHandler("tools/list") == nil {
+		s.RegisterHandler("tools/list", s.handleToolsList)
+	}
+	if s.GetHandler("tools/call") == nil {
+		s.RegisterHandler("tools/call", s.handleToolsCall)
+	}
 }
 
 // handleInitialize handles the initialize request
