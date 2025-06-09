@@ -142,7 +142,7 @@ func TestServerStart(t *testing.T) {
 		t.Error("Initialize handler not registered")
 	}
 
-	if _, exists := server.notifications["initialized"]; !exists {
+	if _, exists := server.notifications["notifications/initialized"]; !exists {
 		t.Error("Initialized notification handler not registered")
 	}
 }
