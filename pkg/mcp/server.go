@@ -193,8 +193,8 @@ func (s *Server) registerDefaultHandlers() {
 	if s.GetHandler("initialize") == nil {
 		s.RegisterHandler("initialize", s.handleInitialize)
 	}
-	if s.GetNotificationHandler("initialized") == nil {
-		s.RegisterNotificationHandler("initialized", s.handleInitialized)
+	if s.GetNotificationHandler("notifications/initialized") == nil {
+		s.RegisterNotificationHandler("notifications/initialized", s.handleInitialized)
 	}
 	if s.GetHandler("tools/list") == nil {
 		s.RegisterHandler("tools/list", s.handleToolsList)
