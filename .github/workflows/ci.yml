@@ -59,7 +59,7 @@ jobs:
         name: codecov-umbrella
 
     - name: Upload coverage artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: coverage-report
         path: coverage.html
@@ -228,7 +228,7 @@ jobs:
       run: make build-all
 
     - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
         path: dist/
